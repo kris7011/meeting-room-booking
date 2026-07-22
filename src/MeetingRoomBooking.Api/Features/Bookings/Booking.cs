@@ -4,8 +4,8 @@ namespace MeetingRoomBooking.Api.Features.Bookings;
 
 public sealed class Booking
 {
-    private const int MaximumTitleLength = 200;
-    private const int MaximumBookedByLength = 120;
+    internal const int MaximumTitleLength = 200;
+    internal const int MaximumBookedByLength = 120;
 
     private Booking()
     {

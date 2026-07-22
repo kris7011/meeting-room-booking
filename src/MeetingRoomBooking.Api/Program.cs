@@ -1,4 +1,6 @@
 using MeetingRoomBooking.Api.Data;
+using MeetingRoomBooking.Api.Features.Bookings;
+using MeetingRoomBooking.Api.Features.Rooms;
 using Microsoft.EntityFrameworkCore;
 
 var builder =
@@ -15,6 +17,8 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<BookingDbContext>(
     options =>
         options.UseSqlite(connectionString));
+
+builder.Services.AddScoped<BookingService>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -49,6 +53,9 @@ app.MapGet(
     .WithName("GetHealth")
     .WithTags("System")
     .WithOpenApi();
+
+app.MapRoomEndpoints();
+app.MapBookingEndpoints();
 
 await app.InitialiseDatabaseAsync();
 

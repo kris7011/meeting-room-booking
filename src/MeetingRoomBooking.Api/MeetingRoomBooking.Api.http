@@ -4,3 +4,26 @@ GET {{MeetingRoomBooking_Api_HostAddress}}/health
 Accept: application/json
 
 ###
+
+GET {{MeetingRoomBooking_Api_HostAddress}}/api/rooms
+Accept: application/json
+
+###
+
+GET {{MeetingRoomBooking_Api_HostAddress}}/api/bookings
+Accept: application/json
+
+###
+
+POST {{MeetingRoomBooking_Api_HostAddress}}/api/bookings
+Content-Type: application/json
+
+{
+  "roomId": 1,
+  "title": "Sprint planning",
+  "bookedBy": "Kris Larsen",
+  "startUtc": "2026-08-17T08:00:00Z",
+  "endUtc": "2026-08-17T09:00:00Z"
+}
+
+###
