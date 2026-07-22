@@ -1,0 +1,295 @@
+# ============================================================
+# Meeting Room Booking
+# .NET 8 / ASP.NET Core / Entity Framework Core / Angular
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Environment variables and local configuration
+# ------------------------------------------------------------
+
+.env
+.env.*
+!.env.example
+
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+
+
+# ------------------------------------------------------------
+# .NET build output
+# ------------------------------------------------------------
+
+**/[Bb]in/
+**/[Oo]bj/
+artifacts/
+
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+
+# ------------------------------------------------------------
+# .NET and NuGet generated files
+# ------------------------------------------------------------
+
+project.lock.json
+project.fragment.lock.json
+
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+
+# ------------------------------------------------------------
+# Test results and code coverage
+# ------------------------------------------------------------
+
+[Tt]est[Rr]esult*/
+TestResults/
+test-results/
+
+coverage/
+coverage-output/
+
+coverage*.json
+coverage*.xml
+coverage*.info
+coverage*.lcov
+
+*.coverage
+*.coveragexml
+
+BenchmarkDotNet.Artifacts/
+
+
+# ------------------------------------------------------------
+# ASP.NET Core generated and local files
+# ------------------------------------------------------------
+
+ScaffoldingReadMe.txt
+
+*.pubxml
+*.publishproj
+*.azurePubxml
+PublishScripts/
+publish/
+
+healthchecksdb
+
+
+# ------------------------------------------------------------
+# Entity Framework and SQLite runtime databases
+# Keep EF Core migrations in Git
+# ------------------------------------------------------------
+
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+
+
+# ------------------------------------------------------------
+# Node.js and npm
+# ------------------------------------------------------------
+
+**/node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.npm/
+.yarn/
+.pnpm-store/
+
+
+# ------------------------------------------------------------
+# Angular generated files
+# ------------------------------------------------------------
+
+**/.angular/
+**/dist/
+**/out-tsc/
+
+.angular/
+dist/
+out-tsc/
+
+
+# ------------------------------------------------------------
+# Frontend test and tooling caches
+# ------------------------------------------------------------
+
+.vitest/
+.nyc_output/
+.eslintcache
+
+.cache/
+.parcel-cache/
+.sass-cache/
+
+
+# ------------------------------------------------------------
+# Visual Studio
+# ------------------------------------------------------------
+
+.vs/
+
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+*.userprefs
+*.sln.iml
+
+Generated Files/
+
+*.csproj.user
+*.vcxproj.user
+
+*.pdb
+*.ilk
+*.obj
+*.iobj
+*.ipdb
+*.pch
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*.tlog
+*.svclog
+
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+*.binlog
+
+
+# ------------------------------------------------------------
+# Visual Studio Code
+# Keep shared workspace configuration, ignore personal files
+# ------------------------------------------------------------
+
+**/.vscode/*
+!**/.vscode/settings.json
+!**/.vscode/tasks.json
+!**/.vscode/launch.json
+!**/.vscode/extensions.json
+
+*.code-workspace
+.history/
+.localhistory/
+.vshistory/
+
+
+# ------------------------------------------------------------
+# JetBrains Rider and ReSharper
+# ------------------------------------------------------------
+
+.idea/
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+
+# ------------------------------------------------------------
+# Operating system generated files
+# ------------------------------------------------------------
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+
+# ------------------------------------------------------------
+# Temporary, backup and log files
+# ------------------------------------------------------------
+
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup
+
+~$*
+*~
+*.swp
+*.swo
+
+[Ll]og/
+[Ll]ogs/
+
+
+# ------------------------------------------------------------
+# Certificates, keys and local publishing credentials
+# ------------------------------------------------------------
+
+*.pfx
+*.p12
+*.publishsettings
+
+
+# ------------------------------------------------------------
+# Miscellaneous generated files
+# ------------------------------------------------------------
+
+mono_crash.*
+FodyWeavers.xsd
+
+_ReSharper.Caches/
+NCrunchTemp_*
+_NCrunch_*
+.*crunch*.local.xml
+
+OpenCover/
+ASALocalRun/
+MigrationBackup/
