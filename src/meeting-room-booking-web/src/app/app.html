@@ -1,266 +1,399 @@
-<div class="app-shell">
-  <header class="hero">
-    <div>
-      <p class="eyebrow">Workspace scheduling</p>
-      <h1>Meeting room booking</h1>
-      <p class="hero-description">
-        Create, update and manage meeting room reservations without double bookings.
-      </p>
-    </div>
+<div class="min-h-screen bg-slate-100 text-slate-900">
+  <div class="mx-auto min-h-screen w-full max-w-[1440px] px-4 py-8 sm:px-7 lg:px-10">
+    <header class="mb-7 flex flex-col items-start justify-between gap-8 md:flex-row">
+      <div>
+        <p class="mb-2 text-xs font-bold tracking-[0.12em] text-blue-700 uppercase">
+          Workspace scheduling
+        </p>
 
-    <button type="button" class="button button-secondary" [disabled]="isLoading()" (click)="loadData()">
-      {{ isLoading() ? 'Refreshing…' : 'Refresh data' }}
-    </button>
-  </header>
+        <h1 class="text-4xl leading-none font-bold tracking-[-0.045em] text-slate-900 sm:text-5xl lg:text-7xl">
+          Meeting room booking
+        </h1>
 
-  <section class="summary-grid" aria-label="Booking overview">
-    <article class="summary-card">
-      <span class="summary-label">Meeting rooms</span>
-      <strong>{{ rooms().length }}</strong>
-      <span>Available rooms</span>
-    </article>
-
-    <article class="summary-card">
-      <span class="summary-label">Bookings</span>
-      <strong>{{ bookings().length }}</strong>
-      <span>Current reservations</span>
-    </article>
-
-    <article class="summary-card">
-      <span class="summary-label">Form mode</span>
-      <strong>{{ isEditing() ? 'Edit' : 'Create' }}</strong>
-      <span>{{ isEditing() ? 'Updating a booking' : 'New reservation' }}</span>
-    </article>
-  </section>
-
-  @if (errorMessage(); as message) {
-  <div class="feedback feedback-error" role="alert">
-    <strong>Something went wrong</strong>
-    <span>{{ message }}</span>
-  </div>
-  }
-
-  @if (successMessage(); as message) {
-  <div class="feedback feedback-success" role="status">
-    <strong>Done</strong>
-    <span>{{ message }}</span>
-  </div>
-  }
-
-  <main class="workspace">
-    <section class="panel form-panel">
-      <div class="panel-header">
-        <div>
-          <p class="panel-kicker">Booking details</p>
-          <h2>{{ formHeading() }}</h2>
-          <p>{{ formDescription() }}</p>
-        </div>
+        <p class="mt-5 max-w-2xl text-base leading-7 text-slate-600">
+          Create, update and manage meeting room reservations without double
+          bookings.
+        </p>
       </div>
 
-      <form [formGroup]="bookingForm" (ngSubmit)="saveBooking()">
-        <div class="form-field">
-          <label for="booking-room">Meeting room</label>
+      <button type="button"
+        class="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        [disabled]="isLoading()" (click)="loadData()">
+        {{ isLoading() ? 'Refreshing…' : 'Refresh data' }}
+      </button>
+    </header>
 
-          <select id="booking-room" formControlName="roomId" [class.input-invalid]="
-              bookingForm.controls.roomId.touched && bookingForm.controls.roomId.invalid
-            ">
-            <option [ngValue]="0" disabled>Select a room</option>
+    <section class="mb-5 grid gap-4 md:grid-cols-3" aria-label="Booking overview">
+      <article class="flex min-h-32 flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <span class="text-xs font-bold tracking-[0.09em] text-blue-700 uppercase">
+          Meeting rooms
+        </span>
 
-            @for (room of rooms(); track room.id) {
-            <option [ngValue]="room.id">{{ room.name }} · Capacity {{ room.capacity }}</option>
+        <strong class="mt-auto text-3xl tracking-tight text-slate-900">
+          {{ rooms().length }}
+        </strong>
+
+        <span class="text-sm text-slate-500">Available rooms</span>
+      </article>
+
+      <article class="flex min-h-32 flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <span class="text-xs font-bold tracking-[0.09em] text-blue-700 uppercase">
+          Bookings
+        </span>
+
+        <strong class="mt-auto text-3xl tracking-tight text-slate-900">
+          {{ bookings().length }}
+        </strong>
+
+        <span class="text-sm text-slate-500">Current reservations</span>
+      </article>
+
+      <article class="flex min-h-32 flex-col gap-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <span class="text-xs font-bold tracking-[0.09em] text-blue-700 uppercase">
+          Form mode
+        </span>
+
+        <strong class="mt-auto text-3xl tracking-tight text-slate-900">
+          {{ isEditing() ? 'Edit' : 'Create' }}
+        </strong>
+
+        <span class="text-sm text-slate-500">
+          {{ isEditing() ? 'Updating a booking' : 'New reservation' }}
+        </span>
+      </article>
+    </section>
+
+    @if (errorMessage(); as message) {
+    <div
+      class="mb-5 flex flex-col gap-1 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-red-800 sm:flex-row sm:gap-3"
+      role="alert">
+      <strong class="shrink-0">Something went wrong</strong>
+      <span>{{ message }}</span>
+    </div>
+    }
+
+    @if (successMessage(); as message) {
+    <div
+      class="mb-5 flex flex-col gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-emerald-800 sm:flex-row sm:gap-3"
+      role="status">
+      <strong class="shrink-0">Done</strong>
+      <span>{{ message }}</span>
+    </div>
+    }
+
+    <main class="grid items-start gap-5 lg:grid-cols-[minmax(320px,0.82fr)_minmax(480px,1.5fr)]">
+      <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:sticky lg:top-5 lg:p-7">
+        <div class="mb-7">
+          <p class="mb-2 text-xs font-bold tracking-[0.12em] text-blue-700 uppercase">
+            Booking details
+          </p>
+
+          <h2 class="text-2xl font-bold tracking-tight text-slate-900">
+            {{ formHeading() }}
+          </h2>
+
+          <p class="mt-2 max-w-xl leading-6 text-slate-500">
+            {{ formDescription() }}
+          </p>
+        </div>
+
+        <form [formGroup]="bookingForm" (ngSubmit)="saveBooking()">
+          <div class="mb-5 flex flex-col gap-2">
+            <label for="booking-room" class="text-sm font-semibold text-slate-700">
+              Meeting room
+            </label>
+
+            <select id="booking-room" formControlName="roomId"
+              class="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-700 focus:ring-4 focus:ring-blue-100"
+              [class.border-red-500]="
+                bookingForm.controls.roomId.touched &&
+                bookingForm.controls.roomId.invalid
+              ">
+              <option [ngValue]="0" disabled>Select a room</option>
+
+              @for (room of rooms(); track room.id) {
+              <option [ngValue]="room.id">
+                {{ room.name }} · Capacity {{ room.capacity }}
+              </option>
+              }
+            </select>
+
+            @if (
+            bookingForm.controls.roomId.touched &&
+            bookingForm.controls.roomId.invalid
+            ) {
+            <p class="m-0 text-xs leading-5 text-red-700">
+              Select a meeting room.
+            </p>
             }
-          </select>
+          </div>
 
-          @if (bookingForm.controls.roomId.touched && bookingForm.controls.roomId.invalid) {
-          <p class="field-error">Select a meeting room.</p>
-          }
-        </div>
+          <div class="mb-5 flex flex-col gap-2">
+            <label for="booking-title" class="text-sm font-semibold text-slate-700">
+              Meeting title
+            </label>
 
-        <div class="form-field">
-          <label for="booking-title">Meeting title</label>
-
-          <input id="booking-title" type="text" formControlName="title" maxlength="200"
-            placeholder="For example: Sprint planning" [class.input-invalid]="
-              bookingForm.controls.title.touched && bookingForm.controls.title.invalid
-            " />
-
-          @if (
-          bookingForm.controls.title.touched && bookingForm.controls.title.hasError('required')
-          ) {
-          <p class="field-error">Enter a meeting title.</p>
-          }
-
-          @if (
-          bookingForm.controls.title.touched && bookingForm.controls.title.hasError('maxlength')
-          ) {
-          <p class="field-error">The title cannot exceed 200 characters.</p>
-          }
-        </div>
-
-        <div class="form-field">
-          <label for="booking-owner">Booked by</label>
-
-          <input id="booking-owner" type="text" formControlName="bookedBy" maxlength="120"
-            placeholder="Name of the organiser" [class.input-invalid]="
-              bookingForm.controls.bookedBy.touched && bookingForm.controls.bookedBy.invalid
-            " />
-
-          @if (
-          bookingForm.controls.bookedBy.touched &&
-          bookingForm.controls.bookedBy.hasError('required')
-          ) {
-          <p class="field-error">Enter the name of the organiser.</p>
-          }
-
-          @if (
-          bookingForm.controls.bookedBy.touched &&
-          bookingForm.controls.bookedBy.hasError('maxlength')
-          ) {
-          <p class="field-error">The name cannot exceed 120 characters.</p>
-          }
-        </div>
-
-        <div class="form-row">
-          <div class="form-field">
-            <label for="booking-start">Start</label>
-
-            <input id="booking-start" type="datetime-local" formControlName="startLocal" [class.input-invalid]="
-                bookingForm.controls.startLocal.touched && bookingForm.controls.startLocal.invalid
+            <input id="booking-title" type="text" formControlName="title" maxlength="200"
+              placeholder="For example: Sprint planning"
+              class="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-700 focus:ring-4 focus:ring-blue-100"
+              [class.border-red-500]="
+                bookingForm.controls.title.touched &&
+                bookingForm.controls.title.invalid
               " />
 
             @if (
-            bookingForm.controls.startLocal.touched && bookingForm.controls.startLocal.invalid
+            bookingForm.controls.title.touched &&
+            bookingForm.controls.title.hasError('required')
             ) {
-            <p class="field-error">Select a start time.</p>
+            <p class="m-0 text-xs leading-5 text-red-700">
+              Enter a meeting title.
+            </p>
+            }
+
+            @if (
+            bookingForm.controls.title.touched &&
+            bookingForm.controls.title.hasError('maxlength')
+            ) {
+            <p class="m-0 text-xs leading-5 text-red-700">
+              The title cannot exceed 200 characters.
+            </p>
             }
           </div>
 
-          <div class="form-field">
-            <label for="booking-end">End</label>
+          <div class="mb-5 flex flex-col gap-2">
+            <label for="booking-owner" class="text-sm font-semibold text-slate-700">
+              Booked by
+            </label>
 
-            <input id="booking-end" type="datetime-local" formControlName="endLocal" [class.input-invalid]="
-                bookingForm.controls.endLocal.touched && bookingForm.controls.endLocal.invalid
+            <input id="booking-owner" type="text" formControlName="bookedBy" maxlength="120"
+              placeholder="Name of the organiser"
+              class="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-700 focus:ring-4 focus:ring-blue-100"
+              [class.border-red-500]="
+                bookingForm.controls.bookedBy.touched &&
+                bookingForm.controls.bookedBy.invalid
               " />
 
-            @if (bookingForm.controls.endLocal.touched && bookingForm.controls.endLocal.invalid) {
-            <p class="field-error">Select an end time.</p>
+            @if (
+            bookingForm.controls.bookedBy.touched &&
+            bookingForm.controls.bookedBy.hasError('required')
+            ) {
+            <p class="m-0 text-xs leading-5 text-red-700">
+              Enter the name of the organiser.
+            </p>
+            }
+
+            @if (
+            bookingForm.controls.bookedBy.touched &&
+            bookingForm.controls.bookedBy.hasError('maxlength')
+            ) {
+            <p class="m-0 text-xs leading-5 text-red-700">
+              The name cannot exceed 120 characters.
+            </p>
             }
           </div>
-        </div>
 
-        @if (bookingForm.touched && bookingForm.hasError('invalidTimeRange')) {
-        <p class="form-error">The end time must be later than the start time.</p>
-        }
+          <div class="grid gap-4 md:grid-cols-2">
+            <div class="mb-5 flex flex-col gap-2">
+              <label for="booking-start" class="text-sm font-semibold text-slate-700">
+                Start
+              </label>
 
-        @if (bookingForm.touched && bookingForm.hasError('invalidDateTime')) {
-        <p class="form-error">Enter a valid start and end time.</p>
-        }
+              <input id="booking-start" type="datetime-local" formControlName="startLocal"
+                class="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-700 focus:ring-4 focus:ring-blue-100"
+                [class.border-red-500]="
+                  bookingForm.controls.startLocal.touched &&
+                  bookingForm.controls.startLocal.invalid
+                " />
 
-        <div class="form-actions">
-          <button type="submit" class="button button-primary" [disabled]="isSaving()">
-            @if (isSaving()) {
-            Saving…
-            } @else if (isEditing()) {
-            Save changes
-            } @else {
-            Create booking
-            }
-          </button>
+              @if (
+              bookingForm.controls.startLocal.touched &&
+              bookingForm.controls.startLocal.invalid
+              ) {
+              <p class="m-0 text-xs leading-5 text-red-700">
+                Select a start time.
+              </p>
+              }
+            </div>
 
-          @if (isEditing()) {
-          <button type="button" class="button button-secondary" [disabled]="isSaving()" (click)="cancelEditing()">
-            Cancel editing
-          </button>
+            <div class="mb-5 flex flex-col gap-2">
+              <label for="booking-end" class="text-sm font-semibold text-slate-700">
+                End
+              </label>
+
+              <input id="booking-end" type="datetime-local" formControlName="endLocal"
+                class="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none transition focus:border-blue-700 focus:ring-4 focus:ring-blue-100"
+                [class.border-red-500]="
+                  bookingForm.controls.endLocal.touched &&
+                  bookingForm.controls.endLocal.invalid
+                " />
+
+              @if (
+              bookingForm.controls.endLocal.touched &&
+              bookingForm.controls.endLocal.invalid
+              ) {
+              <p class="m-0 text-xs leading-5 text-red-700">
+                Select an end time.
+              </p>
+              }
+            </div>
+          </div>
+
+          @if (
+          bookingForm.touched && bookingForm.hasError('invalidTimeRange')
+          ) {
+          <p class="mb-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">
+            The end time must be later than the start time.
+          </p>
           }
-        </div>
-      </form>
-    </section>
 
-    <section class="panel bookings-panel">
-      <div class="panel-header booking-list-header">
-        <div>
-          <p class="panel-kicker">Schedule</p>
-          <h2>Bookings</h2>
-          <p>Reservations are ordered by their starting time.</p>
-        </div>
+          @if (
+          bookingForm.touched && bookingForm.hasError('invalidDateTime')
+          ) {
+          <p class="mb-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">
+            Enter a valid start and end time.
+          </p>
+          }
 
-        <span class="booking-count">
-          {{ bookings().length }}
-          {{ bookings().length === 1 ? 'booking' : 'bookings' }}
-        </span>
-      </div>
+          <div class="mt-2 flex flex-wrap gap-3">
+            <button type="submit"
+              class="min-h-10 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              [disabled]="isSaving()">
+              @if (isSaving()) {
+              Saving…
+              } @else if (isEditing()) {
+              Save changes
+              } @else {
+              Create booking
+              }
+            </button>
 
-      @if (isLoading()) {
-      <div class="state-container" aria-live="polite">
-        <div class="loading-indicator" aria-hidden="true"></div>
-        <strong>Loading bookings</strong>
-        <span>Retrieving the latest schedule from the API.</span>
-      </div>
-      } @else if (bookings().length === 0) {
-      <div class="state-container">
-        <strong>No bookings yet</strong>
-        <span>Use the form to create the first reservation.</span>
-      </div>
-      } @else {
-      <div class="booking-list">
-        @for (booking of bookings(); track booking.id) {
-        <article class="booking-card">
-          <div class="booking-main">
-            <div class="booking-room">
-              <span class="room-dot" aria-hidden="true"></span>
-              {{ booking.roomName }}
-            </div>
+            @if (isEditing()) {
+            <button type="button"
+              class="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              [disabled]="isSaving()" (click)="cancelEditing()">
+              Cancel editing
+            </button>
+            }
+          </div>
+        </form>
+      </section>
 
-            <h3>{{ booking.title }}</h3>
+      <section class="min-h-[500px] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:p-7">
+        <div class="mb-7 flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+          <div>
+            <p class="mb-2 text-xs font-bold tracking-[0.12em] text-blue-700 uppercase">
+              Schedule
+            </p>
 
-            <div class="booking-date">
-              <time [attr.datetime]="booking.startUtc">
-                {{ booking.startUtc | date: 'EEE, d MMM yyyy' }}
-              </time>
+            <h2 class="text-2xl font-bold tracking-tight text-slate-900">
+              Bookings
+            </h2>
 
-              <span>
-                {{ booking.startUtc | date: 'HH:mm' }}
-                -
-                {{ booking.endUtc | date: 'HH:mm' }}
-              </span>
-            </div>
-
-            <p class="booking-owner">
-              Booked by <strong>{{ booking.bookedBy }}</strong>
+            <p class="mt-2 leading-6 text-slate-500">
+              Reservations are ordered by their starting time.
             </p>
           </div>
 
-          <div class="booking-actions">
-            @if (pendingDeleteBookingId() === booking.id) {
-            <div class="delete-confirmation">
-              <span>Delete this booking?</span>
+          <span class="w-fit shrink-0 rounded-full bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">
+            {{ bookings().length }}
+            {{ bookings().length === 1 ? 'booking' : 'bookings' }}
+          </span>
+        </div>
 
-              <button type="button" class="button button-danger" [disabled]="deletingBookingId() === booking.id"
-                (click)="deleteBooking(booking)">
-                {{ deletingBookingId() === booking.id ? 'Deleting…' : 'Confirm delete' }}
-              </button>
+        @if (isLoading()) {
+        <div class="flex min-h-72 flex-col items-center justify-center gap-2 text-center text-slate-500"
+          aria-live="polite">
+          <div class="mb-2 h-7 w-7 animate-spin rounded-full border-3 border-blue-100 border-t-blue-700"
+            aria-hidden="true"></div>
 
-              <button type="button" class="button button-quiet" [disabled]="deletingBookingId() === booking.id"
-                (click)="cancelDelete()">
-                Keep booking
-              </button>
+          <strong class="text-slate-700">Loading bookings</strong>
+
+          <span>Retrieving the latest schedule from the API.</span>
+        </div>
+        } @else if (bookings().length === 0) {
+        <div class="flex min-h-72 flex-col items-center justify-center gap-2 text-center text-slate-500">
+          <strong class="text-slate-700">No bookings yet</strong>
+          <span>Use the form to create the first reservation.</span>
+        </div>
+        } @else {
+        <div class="flex flex-col gap-3">
+          @for (booking of bookings(); track booking.id) {
+          <article
+            class="flex flex-col justify-between gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 transition hover:border-slate-300 hover:shadow-sm sm:flex-row">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-blue-700 uppercase">
+                <span class="h-2 w-2 rounded-full bg-sky-500 ring-4 ring-sky-100" aria-hidden="true"></span>
+
+                {{ booking.roomName }}
+              </div>
+
+              <h3 class="my-3 overflow-wrap-anywhere text-lg font-semibold text-slate-900">
+                {{ booking.title }}
+              </h3>
+
+              <div class="flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-600">
+                <time [attr.datetime]="booking.startUtc">
+                  {{ booking.startUtc | date: 'EEE, d MMM yyyy' }}
+                </time>
+
+                <span class="font-semibold">
+                  {{ booking.startUtc | date: 'HH:mm' }}
+                  –
+                  {{ booking.endUtc | date: 'HH:mm' }}
+                </span>
+              </div>
+
+              <p class="mt-3 text-sm text-slate-500">
+                Booked by
+                <strong class="text-slate-700">
+                  {{ booking.bookedBy }}
+                </strong>
+              </p>
             </div>
-            } @else {
-            <button type="button" class="button button-secondary" [attr.data-testid]="'edit-booking-' + booking.id"
-              [disabled]="deletingBookingId() !== null" (click)="editBooking(booking)">
-              Edit
-            </button>
 
-            <button type="button" class="button button-quiet" [disabled]="deletingBookingId() !== null"
-              (click)="requestDelete(booking.id)">
-              Delete
-            </button>
-            }
-          </div>
-        </article>
+            <div class="flex shrink-0 flex-wrap items-start gap-2 sm:justify-end">
+              @if (pendingDeleteBookingId() === booking.id) {
+              <div class="flex max-w-72 flex-wrap gap-2 sm:justify-end">
+                <span class="w-full text-sm font-semibold text-red-800 sm:text-right">
+                  Delete this booking?
+                </span>
+
+                <button type="button"
+                  class="min-h-10 rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  [disabled]="deletingBookingId() === booking.id" (click)="deleteBooking(booking)">
+                  {{
+                  deletingBookingId() === booking.id
+                  ? 'Deleting…'
+                  : 'Confirm delete'
+                  }}
+                </button>
+
+                <button type="button"
+                  class="min-h-10 rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  [disabled]="deletingBookingId() === booking.id" (click)="cancelDelete()">
+                  Keep booking
+                </button>
+              </div>
+              } @else {
+              <button type="button"
+                class="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                [attr.data-testid]="'edit-booking-' + booking.id" [disabled]="deletingBookingId() !== null"
+                (click)="editBooking(booking)">
+                Edit
+              </button>
+
+              <button type="button"
+                class="min-h-10 rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                [disabled]="deletingBookingId() !== null" (click)="requestDelete(booking.id)">
+                Delete
+              </button>
+              }
+            </div>
+          </article>
+          }
+        </div>
         }
-      </div>
-      }
-    </section>
-  </main>
+      </section>
+    </main>
+  </div>
 </div>
