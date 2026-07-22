@@ -1,6 +1,6 @@
-@MeetingRoomBooking.Api_HostAddress = http://localhost:5003
+@MeetingRoomBooking_Api_HostAddress = http://localhost:5003
 
-GET {{MeetingRoomBooking.Api_HostAddress}}/weatherforecast/
+GET {{MeetingRoomBooking_Api_HostAddress}}/health
 Accept: application/json
 
 ###
