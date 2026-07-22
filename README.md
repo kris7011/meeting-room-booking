@@ -1,10 +1,25 @@
-# Meeting Room Booking
+﻿# Meeting Room Booking
 
-A small fullstack application for managing meeting room bookings.
+A small fullstack application for creating and managing meeting room reservations.
 
-The project is being developed as a technical assignment. The purpose is to demonstrate how I structure a small but non trivial application, implement business rules, handle errors and connect an API with a frontend.
+The project was developed as a technical assignment with emphasis on clear structure, understandable business rules, useful error handling and automated tests.
 
-The assignment is intentionally kept focused. The main priority is clear, maintainable and testable code rather than a large number of features.
+## Features
+
+The application supports:
+
+- Viewing available meeting rooms.
+- Viewing existing bookings.
+- Creating bookings.
+- Updating bookings.
+- Deleting bookings.
+- Selecting a meeting room.
+- Client-side form validation.
+- Server-side validation.
+- Prevention of overlapping bookings.
+- Clear validation, not-found and conflict messages.
+- Responsive desktop and mobile layouts.
+- Persistent local storage through SQLite.
 
 ## Technology stack
 
@@ -14,38 +29,77 @@ The assignment is intentionally kept focused. The main priority is clear, mainta
 - ASP.NET Core Minimal API
 - Entity Framework Core 8
 - SQLite
+- Swagger/OpenAPI
 
 ### Frontend
 
 - Angular 21
 - TypeScript
 - Angular Reactive Forms
-- CSS
+- Angular Signals
+- RxJS
+- Tailwind CSS 4
+- PostCSS
 
-Tailwind CSS may be added as part of the frontend implementation.
-
-### Testing
+### Testing and automation
 
 - xUnit
 - ASP.NET Core `WebApplicationFactory`
 - SQLite based integration tests
-- Vitest for Angular tests
+- Vitest
+- Angular HTTP testing utilities
+- GitHub Actions
 
 ## Project structure
 
 ```text
 meeting-room-booking/
 │
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+│
 ├── src/
 │   ├── MeetingRoomBooking.Api/
-│   │   └── ASP.NET Core API
+│   │   ├── Data/
+│   │   │   ├── Migrations/
+│   │   │   ├── BookingDbContext.cs
+│   │   │   └── DatabaseExtensions.cs
+│   │   │
+│   │   ├── Features/
+│   │   │   ├── Bookings/
+│   │   │   │   ├── Booking.cs
+│   │   │   │   ├── BookingContracts.cs
+│   │   │   │   ├── BookingEndpoints.cs
+│   │   │   │   └── BookingService.cs
+│   │   │   │
+│   │   │   └── Rooms/
+│   │   │       ├── MeetingRoom.cs
+│   │   │       └── RoomEndpoints.cs
+│   │   │
+│   │   ├── MeetingRoomBooking.Api.http
+│   │   └── Program.cs
 │   │
 │   └── meeting-room-booking-web/
-│       └── Angular frontend
+│       ├── .postcssrc.json
+│       ├── proxy.conf.json
+│       ├── package.json
+│       │
+│       └── src/
+│           ├── app/
+│           │   ├── core/
+│           │   │   ├── models/
+│           │   │   └── services/
+│           │   │
+│           │   ├── app.ts
+│           │   ├── app.html
+│           │   ├── app.css
+│           │   └── app.spec.ts
+│           │
+│           └── styles.css
 │
 ├── tests/
 │   └── MeetingRoomBooking.Api.IntegrationTests/
-│       └── Backend integration tests
 │
 ├── global.json
 ├── MeetingRoomBooking.sln
@@ -53,71 +107,87 @@ meeting-room-booking/
 └── README.md
 ```
 
-## Requirements
+The backend uses a feature oriented structure. Code related to bookings is kept together instead of being distributed across large technical folders.
 
-The application will support:
+The frontend keeps shared API models and services inside the `core` folder, while application state and user-interface behaviour are handled by the root Angular component.
 
-- Viewing existing bookings.
-- Creating a booking.
-- Updating an existing booking.
-- Deleting a booking.
-- Selecting a meeting room.
-- Displaying understandable validation and conflict errors.
-
-The central business rule is:
-
-> A meeting room cannot be booked when another booking for the same room overlaps the requested time period.
-
-## Planned domain model
+## Domain model
 
 ### Meeting room
 
-A meeting room contains information such as:
+A meeting room contains:
 
-- Unique identifier.
-- Name.
-- Capacity.
+- An identifier.
+- A name.
+- A capacity.
+
+The application is seeded with the following rooms:
+
+| Room               | Capacity |
+| ------------------ | -------: |
+| Focus Room         |        4 |
+| Collaboration Room |        8 |
+| Board Room         |       12 |
 
 ### Booking
 
 A booking contains:
 
-- Unique identifier.
-- Meeting room identifier.
-- Title.
-- Name of the person who created the booking.
-- Start time.
-- End time.
+- An identifier.
+- A meeting room identifier.
+- A title.
+- The name of the organiser.
+- A start time.
+- An end time.
+- A creation timestamp.
 
-## Planned API endpoints
+The `Booking` entity validates its own core invariants, including required values, maximum text lengths and valid time ranges.
+
+## API endpoints
 
 ```text
+GET    /health
+
 GET    /api/rooms
+
 GET    /api/bookings
 GET    /api/bookings/{id}
-
 POST   /api/bookings
 PUT    /api/bookings/{id}
 DELETE /api/bookings/{id}
 ```
 
-The final endpoint design may be adjusted slightly during implementation when the domain and use cases become clearer.
+Swagger is available in the Development environment at:
+
+```text
+http://localhost:5003/swagger
+```
+
+## Example booking request
+
+```json
+{
+  "roomId": 1,
+  "title": "Sprint planning",
+  "bookedBy": "Kris Larsen",
+  "startUtc": "2030-01-10T09:00:00Z",
+  "endUtc": "2030-01-10T10:00:00Z"
+}
+```
 
 ## Overlap rule
 
-Two bookings overlap when the existing booking starts before the new booking ends and the existing booking ends after the new booking starts.
+A meeting room cannot have two bookings whose time periods overlap.
 
-Conceptually:
+Two bookings overlap when:
 
 ```text
-existing.Start < requested.End
+existing.StartUtc < requested.EndUtc
 AND
-existing.End > requested.Start
+existing.EndUtc > requested.StartUtc
 ```
 
-This allows one booking to begin exactly when another booking ends.
-
-Example:
+This means adjacent bookings are allowed.
 
 ```text
 Existing booking: 09:00-10:00
@@ -126,82 +196,173 @@ New booking:      10:00-11:00
 
 These bookings do not overlap.
 
-The overlap check must also be applied when an existing booking is updated. During an update, the booking being changed must be excluded from its own overlap check.
+The overlap rule is checked both when a booking is created and when an existing booking is updated.
+
+During an update, the booking being changed is excluded from its own overlap query. This prevents a booking from being treated as a conflict with itself.
+
+The rule is enforced by the API rather than only by the frontend. This ensures that the rule still applies when requests come from clients other than the Angular application.
 
 ## Error handling
 
-The API will return clear HTTP responses for expected errors.
+Expected API errors use appropriate HTTP status codes and Problem Details responses.
 
-Examples:
+### `400 Bad Request`
 
-```text
-400 Bad Request
-```
+Used for invalid input, including:
 
-Used when input is invalid, for example:
+- Missing title.
+- Missing organiser.
+- Invalid meeting-room identifier.
+- Missing start or end time.
+- End time earlier than or equal to start time.
+- Text values that exceed the allowed maximum length.
 
-- The title is missing.
-- The end time is earlier than the start time.
-- The selected meeting room is invalid.
+### `404 Not Found`
 
-```text
-404 Not Found
-```
+Used when:
 
-Used when a requested room or booking does not exist.
+- A requested booking does not exist.
+- A selected meeting room does not exist.
 
-```text
-409 Conflict
-```
+### `409 Conflict`
 
-Used when a meeting room is already booked during the requested period.
+Used when the selected room already has an overlapping booking.
 
-Example response:
+Example:
 
 ```json
 {
-  "code": "booking_overlap",
-  "message": "The meeting room is already booked during the selected period."
+  "type": "about:blank",
+  "title": "Meeting room is unavailable",
+  "status": 409,
+  "detail": "The meeting room is already booked during the selected period.",
+  "code": "booking_overlap"
 }
 ```
 
-The Angular frontend will display these messages in a user-friendly form.
+The Angular frontend translates expected API errors into clear user-facing messages.
 
 ## Data storage
 
-SQLite was selected because it provides real database behaviour while remaining simple to run locally.
+SQLite was selected because it provides real database behaviour while keeping the project easy to run locally.
 
-Compared with an in-memory collection, SQLite makes it possible to demonstrate:
+It demonstrates:
 
 - Entity Framework Core configuration.
+- Entity relationships.
 - Database migrations.
 - Persistent data.
+- Relational constraints.
+- Real overlap queries.
 - Database backed integration tests.
-- Real queries for detecting overlapping bookings.
 
-The local SQLite database file is excluded from Git. The database schema will instead be recreated from Entity Framework Core migrations.
+The local SQLite database file is excluded from Git.
+
+The database schema is recreated from Entity Framework Core migrations, and the API automatically applies pending migrations when it starts.
 
 ## Date and time handling
 
-The API will store booking times as UTC values.
+The browser form uses `datetime-local`, which represents a local date and time without timezone information.
 
-The frontend will allow the user to enter local date and time values and convert them before sending the request to the API.
+Before a booking request is sent, Angular converts the local value into an ISO UTC timestamp using `toISOString()`.
 
-This avoids tying stored data to the timezone of the machine running the application.
+The API normalises and stores booking timestamps as UTC values.
 
-For a production system, the timezone associated with the meeting room or organisation should also be defined explicitly.
+When an existing booking is edited, its UTC timestamp is converted back into the local format expected by the `datetime-local` input.
 
-## Getting started
+For a larger production system, the organisation or meeting room timezone should also be modelled explicitly.
 
-### Prerequisites
+## Frontend architecture
+
+### Reactive Forms
+
+Angular Reactive Forms manage:
+
+- Current form values.
+- Required field validation.
+- Maximum text lengths.
+- Date range validation.
+- Touched and invalid states.
+- Create and edit modes.
+
+The form uses a custom validator to ensure that the end time is later than the start time.
+
+Frontend validation improves the user experience, but backend validation remains authoritative.
+
+### Angular Signals
+
+Angular Signals manage local user interface state, including:
+
+- Meeting rooms.
+- Bookings.
+- Loading state.
+- Saving state.
+- Editing state.
+- Delete confirmation.
+- Error messages.
+- Success messages.
+
+Computed signals provide derived state, including the current form heading and whether the application is in create or edit mode.
+
+### RxJS Observables
+
+The API service returns RxJS Observables for all HTTP operations.
+
+The application uses:
+
+- `subscribe()` to receive HTTP responses.
+- `forkJoin()` to load rooms and bookings in parallel.
+- `finalize()` to reset loading and saving states after successful or failed requests.
+
+### API service
+
+HTTP communication is centralised in `BookingApiService`.
+
+The component does not need to know the implementation details of:
+
+- API URLs.
+- HTTP methods.
+- Request types.
+- Response types.
+
+The service supports:
+
+```text
+getRooms
+getBookings
+getBooking
+createBooking
+updateBooking
+deleteBooking
+```
+
+### Tailwind CSS
+
+The user interface is styled with Tailwind CSS 4 utility classes.
+
+Tailwind is processed through PostCSS using the configuration in:
+
+```text
+src/meeting-room-booking-web/.postcssrc.json
+```
+
+The Tailwind import is located in:
+
+```text
+src/meeting-room-booking-web/src/styles.css
+```
+
+The interface includes responsive layouts for desktop, tablet and mobile screen sizes.
+
+## Prerequisites
 
 Install:
 
 - .NET 8 SDK.
-- Node.js.
+- Node.js 22.
 - npm.
 
-The repository contains a `global.json` file that keeps the project on the .NET 8 SDK family.
+The repository contains a `global.json` file that keeps the solution on the .NET 8 SDK family.
 
 Verify the active SDK:
 
@@ -209,10 +370,22 @@ Verify the active SDK:
 dotnet --version
 ```
 
-The output should begin with:
+The output should start with:
 
 ```text
 8.0.
+```
+
+Verify Node.js:
+
+```powershell
+node --version
+```
+
+The recommended version is:
+
+```text
+v22.
 ```
 
 ## Restore dependencies
@@ -222,160 +395,289 @@ From the repository root:
 ```powershell
 cd "C:\Dev\meeting-room-booking"
 
-dotnet restore .\MeetingRoomBooking.sln
+dotnet restore `
+    .\MeetingRoomBooking.sln
 
-npm --prefix .\src\meeting-room-booking-web install
+npm --prefix `
+    .\src\meeting-room-booking-web `
+    ci
 ```
 
-## Build the backend
+## Run the application
 
-```powershell
-cd "C:\Dev\meeting-room-booking"
+The backend and frontend run as separate development processes.
 
-dotnet build .\MeetingRoomBooking.sln
-```
-
-## Run backend tests
-
-```powershell
-cd "C:\Dev\meeting-room-booking"
-
-dotnet test .\MeetingRoomBooking.sln
-```
-
-## Run the API
+### Terminal 1 - API
 
 ```powershell
 cd "C:\Dev\meeting-room-booking"
 
 dotnet run `
-    --project .\src\MeetingRoomBooking.Api\MeetingRoomBooking.Api.csproj
+    --project .\src\MeetingRoomBooking.Api\MeetingRoomBooking.Api.csproj `
+    --launch-profile http
 ```
 
-The exact local API address is displayed in the terminal when the application starts.
+The API runs at:
 
-## Build the frontend
+```text
+http://localhost:5003
+```
+
+Swagger is available at:
+
+```text
+http://localhost:5003/swagger
+```
+
+### Terminal 2 - Angular frontend
 
 ```powershell
 cd "C:\Dev\meeting-room-booking"
 
-npm --prefix .\src\meeting-room-booking-web run build
+npm --prefix `
+    .\src\meeting-room-booking-web `
+    start
 ```
 
-## Run frontend tests
-
-```powershell
-cd "C:\Dev\meeting-room-booking"
-
-npm --prefix .\src\meeting-room-booking-web test -- --watch=false
-```
-
-## Run the frontend
-
-```powershell
-cd "C:\Dev\meeting-room-booking"
-
-npm --prefix .\src\meeting-room-booking-web start
-```
-
-The Angular development server is normally available at:
+Open the application at:
 
 ```text
 http://localhost:4200
 ```
 
-## Current status
+The Angular development server proxies requests beginning with `/api` to the backend on port `5003`.
 
-The initial solution structure has been created.
+The proxy configuration is located in:
 
-Completed:
+```text
+src/meeting-room-booking-web/proxy.conf.json
+```
 
-- .NET 8 solution.
-- ASP.NET Core API project.
-- Entity Framework Core SQLite packages.
-- Backend integration test project.
-- Angular standalone application.
-- Initial build configuration.
+## Build and test
 
-Next implementation steps:
+### Backend
 
-1. Add meeting room and booking entities.
-2. Add the Entity Framework Core database context.
-3. Add initial meeting room data.
-4. Add database migrations.
-5. Implement booking CRUD endpoints.
-6. Implement booking overlap detection.
-7. Add API integration tests.
-8. Build the Angular booking list and form.
-9. Display validation and overlap errors in the frontend.
-10. Add final documentation and automated CI checks.
+Restore and build the solution:
+
+```powershell
+cd "C:\Dev\meeting-room-booking"
+
+dotnet restore `
+    .\MeetingRoomBooking.sln
+
+dotnet build `
+    .\MeetingRoomBooking.sln `
+    --configuration Release `
+    --no-restore
+```
+
+Run the backend test suite:
+
+```powershell
+dotnet test `
+    .\MeetingRoomBooking.sln `
+    --configuration Release `
+    --no-build
+```
+
+The backend suite currently contains 15 integration tests.
+
+### Frontend
+
+Install the locked frontend dependencies:
+
+```powershell
+cd "C:\Dev\meeting-room-booking"
+
+npm --prefix `
+    .\src\meeting-room-booking-web `
+    ci
+```
+
+Create a production build:
+
+```powershell
+npm --prefix `
+    .\src\meeting-room-booking-web `
+    run build
+```
+
+Run the frontend tests:
+
+```powershell
+npm --prefix `
+    .\src\meeting-room-booking-web `
+    test -- --watch=false
+```
+
+The frontend suite currently contains 8 tests:
+
+- 6 API-service tests.
+- 2 application-component tests.
 
 ## Testing strategy
 
-The most important behaviour will be covered by integration tests against the API.
+### Backend tests
 
-The tests will verify scenarios such as:
+Backend integration tests start the real ASP.NET Core application through `WebApplicationFactory`.
 
-- A valid booking can be created.
-- A booking can be retrieved.
-- A booking can be updated.
-- A booking can be deleted.
-- Overlapping bookings for the same room are rejected.
-- The same time period can be used for different rooms.
-- Adjacent bookings are accepted.
-- Invalid time periods are rejected.
-- Updating a booking does not conflict with itself.
-- Updating a booking into another booking's time period is rejected.
+Each test factory uses an isolated temporary SQLite database.
 
-Frontend tests will focus on:
+Connection pooling is disabled in the test configuration so Windows can reliably release and delete the temporary database file after each test.
 
-- Form validation.
-- Correct API requests.
-- Display of existing bookings.
-- Display of conflict and validation errors.
+Backend scenarios include:
 
-## Design considerations
+- Database migration and seeded meeting rooms.
+- Retrieval of meeting rooms.
+- Retrieval of bookings.
+- Retrieval of a booking by identifier.
+- Valid booking creation.
+- Booking persistence.
+- Overlap rejection.
+- The same period in different rooms.
+- Adjacent bookings.
+- Invalid time ranges.
+- Unknown meeting rooms.
+- Valid updates.
+- Updates without self conflict.
+- Conflicting updates.
+- Unknown bookings.
+- Successful deletion.
+- Deletion of missing bookings.
 
-The project will favour a feature oriented structure instead of placing every class of the same technical type into large shared folders.
+### Frontend service tests
 
-For example:
+Frontend API service tests verify:
+
+- Request URL.
+- HTTP method.
+- Request body.
+- Returned response.
+- Completion of delete requests.
+- Absence of unexpected HTTP requests.
+
+The tests use Angular's HTTP testing utilities rather than starting the real backend.
+
+### Frontend component tests
+
+Application component tests verify:
+
+- That the Angular application can be created.
+- That rooms and bookings are loaded.
+- That existing bookings are rendered.
+- That selecting Edit populates the booking form.
+
+## Continuous integration
+
+GitHub Actions runs automatically for:
+
+- Pushes to `main`.
+- Pull requests.
+
+The workflow runs backend and frontend validation as separate jobs.
 
 ```text
-Features/
-  Bookings/
-    Booking.cs
-    BookingEndpoints.cs
-    BookingRepository.cs
-    BookingService.cs
+Backend:
+restore => Release build => integration tests
 
-  Rooms/
-    MeetingRoom.cs
-    MeetingRoomEndpoints.cs
+Frontend:
+npm ci => production build => unit tests
 ```
 
-This keeps the code belonging to a feature close together and makes a small application easier to navigate.
+The workflow is located at:
 
-Business rules that are important to the domain should not be hidden inside the frontend. The API remains responsible for enforcing the overlap rule, because requests may come from clients other than the Angular application.
+```text
+.github/workflows/ci.yml
+```
 
-The frontend may perform basic validation to improve the user experience, but backend validation remains authoritative.
+Separating the jobs makes it clear whether a failure belongs to the backend or frontend.
 
-## Possible improvements with more time
+## Design decisions
+
+### SQLite rather than an in-memory collection
+
+SQLite provides persistent data, migrations, constraints and real database queries without requiring a separate database server.
+
+It also allows integration tests to use the same database provider as the running application.
+
+### Feature oriented backend structure
+
+Booking entities, contracts, endpoints and services are grouped together.
+
+This makes the code for each feature easier to locate and understand.
+
+### Backend owned business rules
+
+The frontend performs validation to improve the user experience, but the API remains authoritative for validity and overlap rules.
+
+This prevents business rules from being bypassed by another frontend or API client.
+
+### Read-only EF Core queries
+
+Queries that materialise entities only for display use `AsNoTracking()`.
+
+This avoids unnecessary EF Core change tracking overhead.
+
+Update and delete operations use tracked entities so EF Core can detect changes and generate the required SQL statements when `SaveChangesAsync()` is called.
+
+### Problem Details responses
+
+Expected API errors use structured Problem Details responses with application specific error codes.
+
+The frontend can therefore distinguish between overlap conflicts, missing resources and validation errors.
+
+### Angular API service
+
+HTTP calls are centralised in `BookingApiService`.
+
+Angular components do not need to know endpoint addresses or HTTP implementation details.
+
+### Local list updates
+
+After successful create, update and delete operations, the frontend updates its local booking signal directly.
+
+This avoids issuing an additional full GET request after every mutation.
+
+### Tailwind utility classes
+
+Most visual styling is expressed through Tailwind utility classes close to the associated HTML.
+
+The global stylesheet is limited to the Tailwind import and a small number of application wide browser styles.
+
+### UTC storage
+
+Booking times are stored as UTC values to avoid tying stored data to the timezone of the machine running the API.
+
+## Current test results
+
+At the time of completion, the project passes:
+
+```text
+Backend:
+15 passed
+0 failed
+
+Frontend:
+8 passed
+0 failed
+```
+
+The Angular production build and the .NET Release build both complete successfully.
+
+## Possible improvements
 
 With more development time, the following could be added:
 
 - Authentication and authorisation.
-- Identification of the currently logged in user.
-- Calendar style booking view.
-- Filtering by room and date.
+- Identification of the currently signed in user.
+- Calendar style schedule view.
+- Filtering by room or date.
 - Recurring bookings.
-- Booking cancellation history.
+- Pagination.
 - Audit logging.
 - Optimistic concurrency handling.
-- Pagination.
-- Accessibility review.
-- More advanced timezone handling.
+- More advanced timezone modelling.
+- End-to-end browser tests.
 - Docker support.
 - Deployment configuration.
-- Structured application telemetry.
-- End-to-end browser tests.
-- CI/CD deployment pipeline.
+- Structured telemetry.

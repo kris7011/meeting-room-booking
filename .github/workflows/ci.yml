@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend build and tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore backend dependencies
+        run: dotnet restore ./MeetingRoomBooking.sln
+
+      - name: Build backend
+        run: >
+          dotnet build
+          ./MeetingRoomBooking.sln
+          --configuration Release
+          --no-restore
+
+      - name: Run backend tests
+        run: >
+          dotnet test
+          ./MeetingRoomBooking.sln
+          --configuration Release
+          --no-build
+
+  frontend:
+    name: Frontend build and tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./src/meeting-room-booking-web
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ./src/meeting-room-booking-web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run frontend tests
+        run: npm test -- --watch=false
