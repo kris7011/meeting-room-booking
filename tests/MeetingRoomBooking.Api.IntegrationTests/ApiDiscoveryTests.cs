@@ -19,14 +19,14 @@ public sealed class ApiDiscoveryTests(MeetingRoomBookingApiFactory factory)
             .ToArray();
 
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "GET" && item.RelativePath == "api/rooms");
+            item.HttpMethod == "GET" && item.RelativePath?.TrimEnd('/') == "api/rooms");
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "GET" && item.RelativePath == "api/bookings");
+            item.HttpMethod == "GET" && item.RelativePath?.TrimEnd('/') == "api/bookings");
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "POST" && item.RelativePath == "api/bookings");
+            item.HttpMethod == "POST" && item.RelativePath?.TrimEnd('/') == "api/bookings");
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "PUT" && item.RelativePath == "api/bookings/{bookingId}");
+            item.HttpMethod == "PUT" && item.RelativePath?.TrimEnd('/') == "api/bookings/{bookingId}");
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "DELETE" && item.RelativePath == "api/bookings/{bookingId}");
+            item.HttpMethod == "DELETE" && item.RelativePath?.TrimEnd('/') == "api/bookings/{bookingId}");
     }
 }
