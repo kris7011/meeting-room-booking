@@ -25,9 +25,9 @@ The application supports:
 
 ### Backend
 
-- .NET 8
+- .NET 10
 - ASP.NET Core Minimal API
-- Entity Framework Core 8
+- Entity Framework Core 10
 - SQLite
 - Swagger/OpenAPI
 
@@ -358,11 +358,11 @@ The interface includes responsive layouts for desktop, tablet and mobile screen 
 
 Install:
 
-- .NET 8 SDK.
+- .NET 10 SDK.
 - Node.js 22.
 - npm.
 
-The repository contains a `global.json` file that keeps the solution on the .NET 8 SDK family.
+The repository contains a `global.json` file that keeps the solution on the .NET 10 SDK family.
 
 Verify the active SDK:
 
