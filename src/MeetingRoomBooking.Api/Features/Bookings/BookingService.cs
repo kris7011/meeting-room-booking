@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using MeetingRoomBooking.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -107,8 +108,16 @@ public sealed class BookingService(
         dbContext.Bookings.Add(
             booking);
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+            when (IsOverlapConstraint(exception))
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.Overlap);
+        }
 
         await LoadRoomAsync(
             booking,
@@ -175,8 +184,16 @@ public sealed class BookingService(
             startUtc: startUtc,
             endUtc: endUtc);
 
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+            when (IsOverlapConstraint(exception))
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.Overlap);
+        }
 
         await LoadRoomAsync(
             booking,
@@ -209,6 +226,16 @@ public sealed class BookingService(
             cancellationToken);
 
         return true;
+    }
+
+    private static bool IsOverlapConstraint(
+        DbUpdateException exception)
+    {
+        return exception.InnerException is SqliteException sqlite
+            && sqlite.SqliteErrorCode == 19
+            && sqlite.Message.Contains(
+                "booking_overlap",
+                StringComparison.Ordinal);
     }
 
     private Task<bool> RoomExistsAsync(
