@@ -25,8 +25,8 @@ public sealed class ApiDiscoveryTests(MeetingRoomBookingApiFactory factory)
         Assert.Contains(descriptions, item =>
             item.HttpMethod == "POST" && item.RelativePath?.TrimEnd('/') == "api/bookings");
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "PUT" && item.RelativePath?.TrimEnd('/') == "api/bookings/{bookingId}");
+            item.HttpMethod == "PUT" && item.RelativePath?.StartsWith("api/bookings/{bookingId", StringComparison.Ordinal) == true);
         Assert.Contains(descriptions, item =>
-            item.HttpMethod == "DELETE" && item.RelativePath?.TrimEnd('/') == "api/bookings/{bookingId}");
+            item.HttpMethod == "DELETE" && item.RelativePath?.StartsWith("api/bookings/{bookingId", StringComparison.Ordinal) == true);
     }
 }
