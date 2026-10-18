@@ -51,8 +51,7 @@ app.MapGet(
                         DateTimeOffset.UtcNow
                 }))
     .WithName("GetHealth")
-    .WithTags("System")
-    .WithOpenApi();
+    .WithTags("System");
 
 app.MapRoomEndpoints();
 app.MapBookingEndpoints();

@@ -17,8 +17,7 @@ public static class RoomEndpoints
                 "/api/rooms",
                 GetAllAsync)
             .WithName("GetMeetingRooms")
-            .WithTags("Rooms")
-            .WithOpenApi();
+            .WithTags("Rooms");
 
         return endpoints;
     }

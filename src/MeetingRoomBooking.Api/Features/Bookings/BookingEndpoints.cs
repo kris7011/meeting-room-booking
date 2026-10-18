@@ -14,32 +14,27 @@ public static class BookingEndpoints
         group.MapGet(
                 "",
                 GetAllAsync)
-            .WithName("GetBookings")
-            .WithOpenApi();
+            .WithName("GetBookings");
 
         group.MapGet(
                 "/{bookingId:int}",
                 GetByIdAsync)
-            .WithName("GetBookingById")
-            .WithOpenApi();
+            .WithName("GetBookingById");
 
         group.MapPost(
                 "",
                 CreateAsync)
-            .WithName("CreateBooking")
-            .WithOpenApi();
+            .WithName("CreateBooking");
 
         group.MapPut(
                 "/{bookingId:int}",
                 UpdateAsync)
-            .WithName("UpdateBooking")
-            .WithOpenApi();
+            .WithName("UpdateBooking");
 
         group.MapDelete(
                 "/{bookingId:int}",
                 DeleteAsync)
-            .WithName("DeleteBooking")
-            .WithOpenApi();
+            .WithName("DeleteBooking");
 
         return endpoints;
     }
