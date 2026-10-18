@@ -18,6 +18,16 @@ export class BookingApiService {
     return this.httpClient.get<MeetingRoom[]>(this.roomsUrl);
   }
 
+  getAvailableRooms(
+    startUtc: string,
+    endUtc: string,
+    minCapacity = 1,
+  ): Observable<MeetingRoom[]> {
+    return this.httpClient.get<MeetingRoom[]>(`${this.roomsUrl}/available`, {
+      params: { startUtc, endUtc, minCapacity: String(minCapacity) },
+    });
+  }
+
   getBookings(): Observable<Booking[]> {
     return this.httpClient.get<Booking[]>(this.bookingsUrl);
   }
