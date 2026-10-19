@@ -14,6 +14,33 @@ var connectionString =
 
 builder.Services.AddProblemDetails();
 
+// Browser clients served from another origin (the Expo web dev server on
+// http://localhost:8081) need CORS. Only Development allows it, and only for
+// the origins listed in appsettings.Development.json: other environments
+// send no CORS headers, so browsers keep blocking cross-origin calls there.
+const string DevelopmentClientsCorsPolicy =
+    "DevelopmentClients";
+
+var corsAllowedOrigins =
+    builder.Environment.IsDevelopment()
+        ? builder.Configuration
+              .GetSection("Cors:AllowedOrigins")
+              .Get<string[]>() ?? []
+        : [];
+
+if (corsAllowedOrigins.Length > 0)
+{
+    builder.Services.AddCors(
+        options =>
+            options.AddPolicy(
+                DevelopmentClientsCorsPolicy,
+                policy =>
+                    policy
+                        .WithOrigins(corsAllowedOrigins)
+                        .WithMethods("GET", "POST", "PUT", "DELETE")
+                        .WithHeaders("Accept", "Content-Type")));
+}
+
 builder.Services.AddDbContext<BookingDbContext>(
     options =>
         options.UseSqlite(connectionString));
@@ -27,6 +54,11 @@ var app =
     builder.Build();
 
 app.UseExceptionHandler();
+
+if (corsAllowedOrigins.Length > 0)
+{
+    app.UseCors(DevelopmentClientsCorsPolicy);
+}
 
 if (app.Environment.IsDevelopment())
 {
