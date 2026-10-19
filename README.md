@@ -453,6 +453,24 @@ The proxy configuration is located in:
 src/meeting-room-booking-web/proxy.conf.json
 ```
 
+### Other browser clients (CORS)
+
+The Angular app avoids CORS through its proxy. Browser clients served from another origin call the API directly, so the API must allow that origin.
+
+In the Development environment, the API allows the origins listed in `appsettings.Development.json`:
+
+```json
+"Cors": {
+  "AllowedOrigins": [
+    "http://localhost:8081"
+  ]
+}
+```
+
+`http://localhost:8081` is the Expo dev server of the [room-booking-mobile](https://github.com/kris7011/room-booking-mobile) app running in a browser. Only the methods `GET`, `POST`, `PUT` and `DELETE` and the headers `Accept` and `Content-Type` are allowed.
+
+Outside Development no CORS policy is registered, even if `Cors:AllowedOrigins` is set, so the API sends no CORS headers and browsers keep blocking cross-origin requests. Native mobile apps are not affected by CORS.
+
 ## Build and test
 
 ### Backend
@@ -480,7 +498,7 @@ dotnet test `
     --no-build
 ```
 
-The backend suite currently contains 15 integration tests.
+The backend suite currently contains 26 integration tests.
 
 ### Frontend
 
@@ -544,6 +562,7 @@ Backend scenarios include:
 - Unknown bookings.
 - Successful deletion.
 - Deletion of missing bookings.
+- CORS: the Expo web origin is allowed in Development, other origins are not, and Production sends no CORS headers.
 
 ### Frontend service tests
 
@@ -654,7 +673,7 @@ At the time of completion, the project passes:
 
 ```text
 Backend:
-15 passed
+26 passed
 0 failed
 
 Frontend:
