@@ -34,6 +34,9 @@ public sealed record BookingResponse(
 
 internal static class BookingRequestValidator
 {
+    internal const string StartNotInFutureMessage =
+        "The start time must be later than the current time.";
+
     public static Dictionary<string, string[]> Validate(
         SaveBookingRequest request)
     {

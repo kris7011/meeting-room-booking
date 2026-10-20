@@ -202,6 +202,26 @@ During an update, the booking being changed is excluded from its own overlap que
 
 The rule is enforced by the API rather than only by the frontend. This ensures that the rule still applies when requests come from clients other than the Angular application.
 
+## Bookings must start in the future
+
+A new booking is rejected when its `startUtc` is equal to or earlier than the server's current time. The comparison is between instants, so the offset a client sends (`+02:00`, `Z`, …) does not matter: `2026-10-25T02:45:00+02:00` and `2026-10-25T02:45:00+01:00` are an hour apart, although both read 02:45 in Copenhagen on the night summer time ends.
+
+When an existing booking is updated, the same rule applies if its start or end changes, so a booking cannot be moved into the past (or have its period changed once it has started). Updates that keep the period, such as a corrected title, are still allowed for past bookings, and past bookings can be read as before.
+
+The rejection is a `400 Bad Request` validation problem on `startUtc`:
+
+```json
+{
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "errors": {
+    "startUtc": ["The start time must be later than the current time."]
+  }
+}
+```
+
+The current time comes from .NET's `TimeProvider` (registered as `TimeProvider.System`). The integration tests replace it with a clock they set to exact instants (`TestTimeProvider`). Their default "now" is 1 January 2029, before all bookings the tests create, so the tests do not start failing as real time passes.
+
 ## Error handling
 
 Expected API errors use appropriate HTTP status codes and Problem Details responses.
@@ -215,6 +235,7 @@ Used for invalid input, including:
 - Invalid meeting-room identifier.
 - Missing start or end time.
 - End time earlier than or equal to start time.
+- Start time equal to or earlier than the server's current time (see [Bookings must start in the future](#bookings-must-start-in-the-future)).
 - Text values that exceed the allowed maximum length.
 
 ### `404 Not Found`

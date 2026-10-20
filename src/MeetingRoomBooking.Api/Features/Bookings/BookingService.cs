@@ -9,7 +9,11 @@ public enum BookingMutationFailure
     None,
     BookingNotFound,
     RoomNotFound,
-    Overlap
+    Overlap,
+    /// <summary>
+    /// The (changed) period does not start after the server's current time.
+    /// </summary>
+    StartNotInFuture
 }
 
 public sealed record BookingMutationResult(
@@ -34,7 +38,8 @@ public sealed record BookingMutationResult(
 }
 
 public sealed class BookingService(
-    BookingDbContext dbContext)
+    BookingDbContext dbContext,
+    TimeProvider timeProvider)
 {
     public async Task<IReadOnlyCollection<Booking>>
         GetAllAsync(
@@ -65,6 +70,23 @@ public sealed class BookingService(
         SaveBookingRequest request,
         CancellationToken cancellationToken)
     {
+        var startUtc =
+            request.StartUtc.ToUniversalTime();
+
+        var endUtc =
+            request.EndUtc.ToUniversalTime();
+
+        var nowUtc =
+            timeProvider.GetUtcNow();
+
+        // Checked before the room lookup: invalid input is a 400, like the
+        // request validator's errors, before a 404 for an unknown room.
+        if (startUtc <= nowUtc)
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.StartNotInFuture);
+        }
+
         var roomExists =
             await RoomExistsAsync(
                 request.RoomId,
@@ -75,12 +97,6 @@ public sealed class BookingService(
             return BookingMutationResult.Failed(
                 BookingMutationFailure.RoomNotFound);
         }
-
-        var startUtc =
-            request.StartUtc.ToUniversalTime();
-
-        var endUtc =
-            request.EndUtc.ToUniversalTime();
 
         var overlaps =
             await HasOverlapAsync(
@@ -103,7 +119,8 @@ public sealed class BookingService(
                 title: request.Title!,
                 bookedBy: request.BookedBy!,
                 startUtc: startUtc,
-                endUtc: endUtc);
+                endUtc: endUtc,
+                createdUtc: nowUtc);
 
         dbContext.Bookings.Add(
             booking);
@@ -145,6 +162,26 @@ public sealed class BookingService(
                 BookingMutationFailure.BookingNotFound);
         }
 
+        var startUtc =
+            request.StartUtc.ToUniversalTime();
+
+        var endUtc =
+            request.EndUtc.ToUniversalTime();
+
+        // A booking cannot be moved into the past. Changes that keep the
+        // period as it is (e.g. a corrected title) stay possible, also for
+        // bookings that have already taken place.
+        var periodChanged =
+            startUtc != booking.StartUtc
+            || endUtc != booking.EndUtc;
+
+        if (periodChanged
+            && startUtc <= timeProvider.GetUtcNow())
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.StartNotInFuture);
+        }
+
         var roomExists =
             await RoomExistsAsync(
                 request.RoomId,
@@ -155,12 +192,6 @@ public sealed class BookingService(
             return BookingMutationResult.Failed(
                 BookingMutationFailure.RoomNotFound);
         }
-
-        var startUtc =
-            request.StartUtc.ToUniversalTime();
-
-        var endUtc =
-            request.EndUtc.ToUniversalTime();
 
         var overlaps =
             await HasOverlapAsync(
