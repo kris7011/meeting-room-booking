@@ -47,11 +47,12 @@ public sealed class Booking
         string title,
         string bookedBy,
         DateTimeOffset startUtc,
-        DateTimeOffset endUtc)
+        DateTimeOffset endUtc,
+        DateTimeOffset createdUtc)
     {
         var booking = new Booking
         {
-            CreatedUtc = DateTimeOffset.UtcNow
+            CreatedUtc = createdUtc.ToUniversalTime()
         };
 
         booking.ApplyDetails(

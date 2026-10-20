@@ -232,6 +232,16 @@ public static class BookingEndpoints
                     detail:
                         "The meeting room is already booked during the selected period."),
 
+            BookingMutationFailure.StartNotInFuture =>
+                Results.ValidationProblem(
+                    new Dictionary<string, string[]>
+                    {
+                        ["startUtc"] =
+                        [
+                            BookingRequestValidator.StartNotInFutureMessage
+                        ]
+                    }),
+
             _ =>
                 throw new ArgumentOutOfRangeException(
                     nameof(failure),

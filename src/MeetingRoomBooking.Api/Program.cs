@@ -2,6 +2,7 @@ using MeetingRoomBooking.Api.Data;
 using MeetingRoomBooking.Api.Features.Bookings;
 using MeetingRoomBooking.Api.Features.Rooms;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder =
     WebApplication.CreateBuilder(args);
@@ -45,6 +46,10 @@ builder.Services.AddDbContext<BookingDbContext>(
     options =>
         options.UseSqlite(connectionString));
 
+// The API's notion of "now" (e.g. to reject bookings that start in the
+// past). Tests replace it with a clock they control.
+builder.Services.TryAddSingleton(TimeProvider.System);
+
 builder.Services.AddScoped<BookingService>();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -74,13 +79,13 @@ if (!app.Environment.IsDevelopment() &&
 
 app.MapGet(
         "/health",
-        () =>
+        (TimeProvider timeProvider) =>
             Results.Ok(
                 new
                 {
                     status = "Healthy",
                     utcTimestamp =
-                        DateTimeOffset.UtcNow
+                        timeProvider.GetUtcNow()
                 }))
     .WithName("GetHealth")
     .WithTags("System");

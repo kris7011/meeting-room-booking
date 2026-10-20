@@ -10,6 +10,18 @@ namespace MeetingRoomBooking.Api.IntegrationTests;
 public sealed class MeetingRoomBookingApiFactory
     : WebApplicationFactory<Program>
 {
+    /// <summary>
+    /// The server's "now" unless a test sets <see cref="Clock"/>. It lies
+    /// before every booking the tests create (2030 and later), so those stay
+    /// in the future however much real time passes.
+    /// </summary>
+    public static readonly DateTimeOffset DefaultNow =
+        new(2029, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>The time source the API uses; tests can move it.</summary>
+    public TestTimeProvider Clock { get; } =
+        new(DefaultNow);
+
     private readonly string databasePath =
         Path.Combine(
             Path.GetTempPath(),
@@ -33,6 +45,11 @@ public sealed class MeetingRoomBookingApiFactory
                     options =>
                         options.UseSqlite(
                             $"Data Source={databasePath};Pooling=False"));
+
+                services.RemoveAll<TimeProvider>();
+
+                services.AddSingleton<TimeProvider>(
+                    Clock);
             });
     }
 
