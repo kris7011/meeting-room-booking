@@ -281,6 +281,35 @@ The local SQLite database file is excluded from Git.
 
 The database schema is recreated from Entity Framework Core migrations, and the API automatically applies pending migrations when it starts.
 
+### Organisations
+
+Every meeting room belongs to an organisation, and a booking always belongs to its room's organisation; the database enforces this with a foreign key on `(OrganizationId, RoomId)`. All rooms and bookings that existed before organisations were introduced live, unchanged and with their original IDs, in the legacy organisation (ID 1). Nobody becomes a member of it automatically.
+
+`OrganizationId` has no database default: a row that does not name its organisation is rejected. The existing endpoints (`/api/rooms`, `/api/rooms/available`, `/api/bookings`) still need no sign-in and only see the legacy organisation, so data of organisations created later cannot be reached through them. They are not a secure multi-organisation API; that needs the sign-in and organisation-based access control planned for later phases.
+
+## Database backup and restore
+
+Before the API applies pending migrations to an existing database, it writes a backup with SQLite's `VACUUM INTO` and verifies it (`PRAGMA integrity_check` and the same row count in every table). If the backup cannot be written or verified, the API stops without migrating. After migrating, it checks foreign keys, integrity and the two booking overlap triggers, and refuses to start if any check fails. A brand-new database is not backed up.
+
+Backups are written to `Database:BackupDirectory`, by default a `backups` folder next to the database file, and named after the first pending migration and the UTC time, for example `meeting-room-booking.pre-20261021065822_CaptureSequenceState-20261021T071023921Z.db`. They are never deleted automatically and are excluded from Git.
+
+To restore a backup:
+
+1. Stop the API so no process has the database open.
+2. Move the current `meeting-room-booking.db` and any `-wal` and `-shm` files to a new folder such as `failed-<timestamp>`. Do not delete them.
+3. Copy the chosen backup to `meeting-room-booking.db`.
+4. Check the copy: `PRAGMA integrity_check` must return `ok`, and the last row of `__EFMigrationsHistory` shows which version the backup belongs to.
+5. Start the API version that matches that migration (for a backup taken before phase 1, the version before it). A newer version migrates the restored database again, with a new backup.
+6. Check `/health`, `GET /api/rooms` and `GET /api/bookings`.
+
+To try a migration against a copy of a database instead of the original, point the API at the copy explicitly:
+
+```bash
+ConnectionStrings__BookingDatabase="Data Source=/path/to/copy/meeting-room-booking.db" \
+Database__BackupDirectory="/path/to/copy/backups" \
+dotnet run --project src/MeetingRoomBooking.Api --no-launch-profile --urls http://localhost:5203
+```
+
 ## Date and time handling
 
 The browser form uses `datetime-local`, which represents a local date and time without timezone information.
@@ -584,6 +613,11 @@ Backend scenarios include:
 - Successful deletion.
 - Deletion of missing bookings.
 - CORS: the Expo web origin is allowed in Development, other origins are not, and Production sends no CORS headers.
+- Migrations: a database on the previous schema keeps every room, booking, ID and UTC timestamp; the AUTOINCREMENT counters never go back; both overlap triggers survive; organisation keys and indexes hold.
+- Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails, and a real restore of a backup file.
+- Organisation scope: the existing endpoints never show or change data of another organisation, and their JSON is unchanged.
+
+Migration tests build their databases with raw SQL in their own temp folders. A guard stops any test from opening a database outside the system temp folder, and the test host receives its connection string explicitly, so tests can never touch the development database.
 
 ### Frontend service tests
 
@@ -694,7 +728,7 @@ At the time of completion, the project passes:
 
 ```text
 Backend:
-26 passed
+79 passed
 0 failed
 
 Frontend:
