@@ -26,6 +26,16 @@ public static class DatabaseInitializer
         "TR_Bookings_Overlap_Update"
     ];
 
+    /// <summary>
+    /// The SQLite triggers that keep an organisation from losing its last
+    /// Owner (see AddIdentityAndMembershipTables).
+    /// </summary>
+    public static readonly IReadOnlyList<string> LastOwnerTriggers =
+    [
+        "TR_Memberships_LastOwner_Delete",
+        "TR_Memberships_LastOwner_Update"
+    ];
+
     public static async Task<DatabaseInitializationResult> InitialiseAsync(
         BookingDbContext dbContext,
         string? backupDirectory,
@@ -101,8 +111,10 @@ public static class DatabaseInitializer
     }
 
     /// <summary>
-    /// Throws unless foreign keys and integrity are intact and both overlap
-    /// triggers exist.
+    /// Throws unless foreign keys and integrity are intact and the overlap
+    /// and last-Owner triggers exist. A table rebuild in a future migration
+    /// drops a table's triggers, so this catches one that forgot to restore
+    /// them.
     /// </summary>
     public static async Task VerifyAsync(
         BookingDbContext dbContext,
@@ -158,23 +170,39 @@ public static class DatabaseInitializer
                 }
             }
 
-            await using (var triggerCheck = connection.CreateCommand())
+            var triggers =
+                new HashSet<string>(StringComparer.Ordinal);
+
+            await using (var triggerQuery = connection.CreateCommand())
             {
-                triggerCheck.CommandText =
-                    """
-                    SELECT COUNT(*) FROM sqlite_master
-                    WHERE "type" = 'trigger' AND "tbl_name" = 'Bookings'
-                      AND "name" IN ('TR_Bookings_Overlap_Insert', 'TR_Bookings_Overlap_Update')
-                    """;
+                triggerQuery.CommandText =
+                    """SELECT "name" FROM sqlite_master WHERE "type" = 'trigger'""";
 
-                var count =
-                    (long)(await triggerCheck.ExecuteScalarAsync(cancellationToken))!;
+                await using var reader =
+                    await triggerQuery.ExecuteReaderAsync(cancellationToken);
 
-                if (count != OverlapTriggers.Count)
+                while (await reader.ReadAsync(cancellationToken))
                 {
-                    throw new InvalidOperationException(
-                        $"The database is missing a booking overlap trigger, so overlapping bookings would not be rejected. {restoreHint}");
+                    triggers.Add(reader.GetString(0));
                 }
+            }
+
+            var missingOverlap =
+                OverlapTriggers.Where(name => !triggers.Contains(name)).ToArray();
+
+            if (missingOverlap.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"The database is missing the booking overlap trigger {string.Join(", ", missingOverlap)}, so overlapping bookings would not be rejected. {restoreHint}");
+            }
+
+            var missingLastOwner =
+                LastOwnerTriggers.Where(name => !triggers.Contains(name)).ToArray();
+
+            if (missingLastOwner.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"The database is missing the last-Owner trigger {string.Join(", ", missingLastOwner)}, so an organisation could lose its last Owner. {restoreHint}");
             }
         }
         finally

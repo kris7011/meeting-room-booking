@@ -214,7 +214,7 @@ public sealed class MigrationTests
                 """
                 SELECT "name", "sql"
                 FROM sqlite_master
-                WHERE "type" = 'trigger'
+                WHERE "type" = 'trigger' AND "tbl_name" = 'Bookings'
                 ORDER BY "name"
                 """);
 

@@ -17,6 +17,44 @@ namespace MeetingRoomBooking.Api.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.0");
 
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Audit.AuditEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ActorUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("OccurredUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("TargetUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("TargetUserId");
+
+                    b.HasIndex("OrganizationId", "OccurredUtc")
+                        .HasDatabaseName("IX_AuditEvents_OrganizationId_OccurredUtc");
+
+                    b.ToTable("AuditEvents", (string)null);
+                });
+
             modelBuilder.Entity("MeetingRoomBooking.Api.Features.Bookings.Booking", b =>
                 {
                     b.Property<int>("Id")
@@ -72,6 +110,117 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                     b.ToTable("Bookings", null, t =>
                         {
                             t.HasCheckConstraint("CK_Bookings_TimeRange", "\"EndUtc\" > \"StartUtc\"");
+                        });
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Invitation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("AcceptedByUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("AcceptedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("ExpiresUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("InvitedByUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("RevokedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcceptedByUserId");
+
+                    b.HasIndex("InvitedByUserId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Invitations_TokenHash");
+
+                    b.HasIndex("OrganizationId", "Email")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Invitations_OrganizationId_Email_Open")
+                        .HasFilter("\"AcceptedUtc\" IS NULL AND \"RevokedUtc\" IS NULL");
+
+                    b.ToTable("Invitations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Invitations_Accepted", "(\"AcceptedByUserId\" IS NULL) = (\"AcceptedUtc\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Invitations_AcceptedOrRevoked", "\"AcceptedUtc\" IS NULL OR \"RevokedUtc\" IS NULL");
+
+                            t.HasCheckConstraint("CK_Invitations_Email", "\"Email\" = lower(trim(\"Email\")) AND instr(\"Email\", '@') > 1");
+
+                            t.HasCheckConstraint("CK_Invitations_Expiry", "\"ExpiresUtc\" > \"CreatedUtc\"");
+
+                            t.HasCheckConstraint("CK_Invitations_Role", "\"Role\" IN ('Admin', 'Member')");
+
+                            t.HasCheckConstraint("CK_Invitations_TokenHash", "length(\"TokenHash\") = 64 AND \"TokenHash\" NOT GLOB '*[^0-9a-f]*'");
+                        });
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Membership", b =>
+                {
+                    b.Property<int>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("UpdatedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("OrganizationId", "UserId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_Memberships_UserId");
+
+                    b.HasIndex("OrganizationId", "Role")
+                        .HasDatabaseName("IX_Memberships_OrganizationId_Role");
+
+                    b.ToTable("Memberships", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Memberships_Role", "\"Role\" IN ('Owner', 'Admin', 'Member')");
                         });
                 });
 
@@ -238,6 +387,79 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                     b.ToTable("Users", (string)null);
                 });
 
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Users.UserIdentity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Issuer")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("LastUsedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("VerifiedEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("VerifiedEmail")
+                        .HasDatabaseName("IX_UserIdentities_VerifiedEmail");
+
+                    b.HasIndex("Issuer", "Subject")
+                        .IsUnique()
+                        .HasDatabaseName("UX_UserIdentities_Issuer_Subject");
+
+                    b.ToTable("UserIdentities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UserIdentities_IssuerAndSubject", "length(\"Issuer\") > 0 AND length(\"Subject\") > 0");
+
+                            t.HasCheckConstraint("CK_UserIdentities_Provider", "\"Provider\" IN ('Entra', 'ExternalId')");
+
+                            t.HasCheckConstraint("CK_UserIdentities_VerifiedEmail", "\"VerifiedEmail\" IS NULL OR (\"VerifiedEmail\" = lower(trim(\"VerifiedEmail\")) AND instr(\"VerifiedEmail\", '@') > 1)");
+                        });
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Audit.AuditEvent", b =>
+                {
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("MeetingRoomBooking.Api.Features.Bookings.Booking", b =>
                 {
                     b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
@@ -260,6 +482,46 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                     b.Navigation("Room");
                 });
 
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Invitation", b =>
+                {
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("AcceptedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("InvitedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Membership", b =>
+                {
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Organization", b =>
                 {
                     b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
@@ -273,6 +535,15 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                     b.HasOne("MeetingRoomBooking.Api.Features.Organizations.Organization", null)
                         .WithMany()
                         .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Users.UserIdentity", b =>
+                {
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -15,9 +15,42 @@ namespace MeetingRoomBooking.Api.IntegrationTests.Migrations;
 /// </summary>
 public sealed class MigrationTestDatabase : IDisposable
 {
-    /// <summary>The last migration before phase 1: the schema in use today.</summary>
+    /// <summary>The last migration before phase 1.</summary>
     public const string PrePhase1Migration =
         "20261018141000_PreventBookingOverlap";
+
+    /// <summary>The last migration of phase 1, PR 1 (merged as PR #7).</summary>
+    public const string Pr7Migration =
+        "20261021070636_RestoreBookingInvariants";
+
+    private static readonly IReadOnlyList<string> AllMigrations =
+        LoadMigrations();
+
+    /// <summary>The newest migration in the code.</summary>
+    public static string LatestMigration =>
+        AllMigrations[^1];
+
+    /// <summary>The migrations that follow <paramref name="migration"/>, in order.</summary>
+    public static IReadOnlyList<string> MigrationsAfter(
+        string migration)
+    {
+        return AllMigrations
+            .SkipWhile(id => id != migration)
+            .Skip(1)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> LoadMigrations()
+    {
+        var options =
+            new DbContextOptionsBuilder<BookingDbContext>()
+                .UseSqlite("Data Source=:memory:")
+                .Options;
+
+        using var context = new BookingDbContext(options);
+
+        return context.Database.GetMigrations().ToArray();
+    }
 
     public MigrationTestDatabase()
     {
@@ -170,6 +203,43 @@ public sealed class MigrationTestDatabase : IDisposable
 
         return Convert.ToHexString(
             SHA256.HashData(stream));
+    }
+
+    /// <summary>Reads another SQLite file, such as a backup, without changing it.</summary>
+    public sealed class ReadOnlyFile(
+        string path)
+    {
+        private readonly string connectionString =
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString();
+
+        public async Task<IReadOnlyList<object?[]>> QueryAsync(
+            string sql)
+        {
+            await using var connection =
+                new SqliteConnection(connectionString);
+
+            await connection.OpenAsync();
+
+            return await MigrationTestDatabase.QueryAsync(
+                connection,
+                sql);
+        }
+
+        public async Task<object?> ScalarAsync(
+            string sql)
+        {
+            var rows =
+                await QueryAsync(sql);
+
+            return rows.Count == 0
+                ? null
+                : rows[0][0];
+        }
     }
 
     public async Task<SqliteConnection> OpenAsync()

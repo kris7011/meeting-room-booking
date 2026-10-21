@@ -31,7 +31,9 @@ public sealed class DatabaseInitializerTests
         Assert.Equal(
             "meeting-room-booking.pre-20261021065822_CaptureSequenceState-20261021T120000000Z.db",
             Path.GetFileName(result.BackupPath));
-        Assert.Equal(4, result.AppliedMigrations.Count);
+        Assert.Equal(
+            MigrationTestDatabase.MigrationsAfter(MigrationTestDatabase.PrePhase1Migration),
+            result.AppliedMigrations);
 
         await using var backup = OpenReadOnly(result.BackupPath);
         Assert.Equal(
@@ -77,7 +79,7 @@ public sealed class DatabaseInitializerTests
         Assert.Null(result.BackupPath);
         Assert.False(Directory.Exists(database.BackupDirectoryPath));
         Assert.Equal(
-            "20261021070636_RestoreBookingInvariants",
+            MigrationTestDatabase.LatestMigration,
             await database.ScalarAsync(LastMigrationSql));
     }
 
@@ -184,6 +186,20 @@ public sealed class DatabaseInitializerTests
                 () => InitialiseAsync(database));
 
         Assert.Contains("overlap trigger", exception.Message);
+    }
+
+    [Fact]
+    public async Task Startup_RefusesToStartWhenALastOwnerTriggerIsMissing()
+    {
+        using var database = new MigrationTestDatabase();
+        await InitialiseAsync(database);
+        await database.ExecuteAsync("""DROP TRIGGER "TR_Memberships_LastOwner_Delete" """);
+
+        var exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => InitialiseAsync(database));
+
+        Assert.Contains("TR_Memberships_LastOwner_Delete", exception.Message);
     }
 
     [Fact]
