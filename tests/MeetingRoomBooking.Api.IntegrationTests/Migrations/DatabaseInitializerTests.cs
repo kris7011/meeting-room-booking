@@ -100,6 +100,78 @@ public sealed class DatabaseInitializerTests
             await database.ScalarAsync(LastMigrationSql));
     }
 
+    public enum UnknownSchema
+    {
+        /// <summary>Tables with data, but no history table at all.</summary>
+        TablesWithoutHistoryTable,
+
+        /// <summary>Tables with data and an empty history table.</summary>
+        TablesWithEmptyHistoryTable,
+
+        /// <summary>A written SQLite header, but no tables.</summary>
+        HeaderWithoutTables
+    }
+
+    [Theory]
+    [InlineData(UnknownSchema.TablesWithoutHistoryTable)]
+    [InlineData(UnknownSchema.TablesWithEmptyHistoryTable)]
+    [InlineData(UnknownSchema.HeaderWithoutTables)]
+    public async Task Startup_StopsForNonEmptyDatabaseWithoutMigrationHistory(
+        UnknownSchema schema)
+    {
+        using var database = new MigrationTestDatabase();
+
+        if (schema == UnknownSchema.HeaderWithoutTables)
+        {
+            await database.ExecuteAsync("PRAGMA user_version = 1");
+        }
+        else
+        {
+            // A database made outside these migrations, e.g. by hand or by
+            // EnsureCreated, that already holds data.
+            await database.ExecuteAsync(
+                """
+                CREATE TABLE "MeetingRooms" (
+                    "Id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    "Name" TEXT NOT NULL,
+                    "Capacity" INTEGER NOT NULL
+                )
+                """);
+            await database.ExecuteAsync(
+                """INSERT INTO "MeetingRooms" ("Name", "Capacity") VALUES ('Existing room', 4)""");
+        }
+
+        if (schema == UnknownSchema.TablesWithEmptyHistoryTable)
+        {
+            await database.ExecuteAsync(
+                """
+                CREATE TABLE "__EFMigrationsHistory" (
+                    "MigrationId" TEXT NOT NULL PRIMARY KEY,
+                    "ProductVersion" TEXT NOT NULL
+                )
+                """);
+        }
+
+        Assert.True(new FileInfo(database.DatabasePath).Length > 0);
+        const string schemaSql =
+            """SELECT "type", "name", "sql" FROM sqlite_master ORDER BY "type", "name" """;
+        var schemaBefore = await database.QueryAsync(schemaSql);
+        var checksumBefore = database.ComputeChecksum();
+
+        var exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => InitialiseAsync(database));
+
+        Assert.Contains("no Entity Framework Core migration history", exception.Message);
+        Assert.Contains(database.DatabasePath, exception.Message);
+
+        // Not migrated, not backed up, not changed in any way.
+        Assert.Equal(checksumBefore, database.ComputeChecksum());
+        Assert.Equal(schemaBefore, await database.QueryAsync(schemaSql));
+        Assert.False(Directory.Exists(database.BackupDirectoryPath));
+        Assert.False(File.Exists($"{database.DatabasePath}-wal"));
+    }
+
     [Fact]
     public async Task Startup_RefusesToStartWhenAnOverlapTriggerIsMissing()
     {

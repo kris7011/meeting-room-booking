@@ -57,7 +57,21 @@ public static class DatabaseInitializer
                 await dbContext.Database
                     .GetAppliedMigrationsAsync(cancellationToken);
 
-            if (databaseExisted && appliedMigrations.Any())
+            // A non-empty file without EF Core migration history was not
+            // created by these migrations, so its schema is unknown. Migrating
+            // it would run every migration from the first one against tables
+            // that may already exist, and there would be no backup. Stop and
+            // leave the file exactly as it is.
+            if (databaseExisted && !appliedMigrations.Any())
+            {
+                throw new InvalidOperationException(
+                    $"The database {databaseFile} is not empty but has no Entity Framework Core migration history " +
+                    $"(\"__EFMigrationsHistory\" is missing or empty), so its schema is unknown. " +
+                    "The API did not migrate, back up or change it. Inspect the file manually, or point " +
+                    "ConnectionStrings:BookingDatabase at a new file to start with an empty database.");
+            }
+
+            if (databaseExisted)
             {
                 backupPath =
                     await DatabaseBackup.CreateVerifiedAsync(
