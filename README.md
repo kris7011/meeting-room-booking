@@ -289,7 +289,11 @@ Every meeting room belongs to an organisation, and a booking always belongs to i
 
 ## Database backup and restore
 
+> **Before the first start after updating:** a normal start of the API (`dotnet run`, or starting it from an IDE) **automatically migrates the existing database** it is configured to use, for example `src/MeetingRoomBooking.Api/meeting-room-booking.db`. The first start after the organisation changes rebuilds the `MeetingRooms` and `Bookings` tables. Make your own separate backup first: stop the API and copy the database file, together with any `-wal` and `-shm` files, to a folder outside the repository. The automatic backup described below is an extra safeguard, not a replacement for your own copy.
+
 Before the API applies pending migrations to an existing database, it writes a backup with SQLite's `VACUUM INTO` and verifies it (`PRAGMA integrity_check` and the same row count in every table). If the backup cannot be written or verified, the API stops without migrating. After migrating, it checks foreign keys, integrity and the two booking overlap triggers, and refuses to start if any check fails. A brand-new database is not backed up.
+
+If the database file is not empty but has no Entity Framework Core migration history (the `__EFMigrationsHistory` table is missing or empty), the API cannot know which schema the file has. It then stops with an error before migrating or backing up, and leaves the file unchanged so it can be inspected by hand. To start with an empty database instead, point `ConnectionStrings:BookingDatabase` at a new file.
 
 Backups are written to `Database:BackupDirectory`, by default a `backups` folder next to the database file, and named after the first pending migration and the UTC time, for example `meeting-room-booking.pre-20261021065822_CaptureSequenceState-20261021T071023921Z.db`. They are never deleted automatically and are excluded from Git.
 
@@ -459,6 +463,8 @@ The backend and frontend run as separate development processes.
 
 ### Terminal 1 - API
 
+Starting the API migrates its existing database automatically. Before the first start after an update with new migrations, make your own backup of the database file (see [Database backup and restore](#database-backup-and-restore)).
+
 ```powershell
 cd "C:\Dev\meeting-room-booking"
 
@@ -614,7 +620,7 @@ Backend scenarios include:
 - Deletion of missing bookings.
 - CORS: the Expo web origin is allowed in Development, other origins are not, and Production sends no CORS headers.
 - Migrations: a database on the previous schema keeps every room, booking, ID and UTC timestamp; the AUTOINCREMENT counters never go back; both overlap triggers survive; organisation keys and indexes hold.
-- Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails, and a real restore of a backup file.
+- Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails or when a non-empty database has no migration history, and a real restore of a backup file.
 - Organisation scope: the existing endpoints never show or change data of another organisation, and their JSON is unchanged.
 
 Migration tests build their databases with raw SQL in their own temp folders. A guard stops any test from opening a database outside the system temp folder, and the test host receives its connection string explicitly, so tests can never touch the development database.
@@ -728,7 +734,7 @@ At the time of completion, the project passes:
 
 ```text
 Backend:
-79 passed
+82 passed
 0 failed
 
 Frontend:
