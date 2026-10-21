@@ -287,6 +287,27 @@ Every meeting room belongs to an organisation, and a booking always belongs to i
 
 `OrganizationId` has no database default: a row that does not name its organisation is rejected. The existing endpoints (`/api/rooms`, `/api/rooms/available`, `/api/bookings`) still need no sign-in and only see the legacy organisation, so data of organisations created later cannot be reached through them. They are not a secure multi-organisation API; that needs the sign-in and organisation-based access control planned for later phases.
 
+### Identities, memberships, invitations and audit events
+
+The data model for self-service organisations is in place; no endpoint uses it yet, and nothing in it requires sign-in.
+
+| Table | Key and relations | Enforced by the database |
+| --- | --- | --- |
+| `UserIdentities` | One row per way a user signs in; `UserId` → `Users`. Unique on `(Issuer, Subject)`: the validated `iss` claim and the issuer's immutable user ID (`oid`). | Provider is `Entra` or `ExternalId`; issuer and subject are not empty; a verified e-mail is lower case. The e-mail is deliberately not unique, so two identities with the same address are never treated as one person. |
+| `Memberships` | Key `(OrganizationId, UserId)`, so one membership per user and organisation; a user can be in several organisations. | Role is `Owner`, `Admin` or `Member`. Once an organisation has an Owner, triggers refuse to delete, demote or move its last Owner (`last_owner`). |
+| `Invitations` | To one organisation (`OrganizationId`) and one e-mail address; `InvitedByUserId` and `AcceptedByUserId` → `Users`. | Role is `Admin` or `Member`, never `Owner`; e-mail is lower case; only a 64-character lower-case hex SHA-256 of the token fits, so a raw token cannot be stored; tokens are unique; expiry is after creation; accepted and revoked exclude each other; one open invitation per e-mail and organisation. |
+| `AuditEvents` | Organisation (optional), actor and target user, type and time. | Foreign keys to `Organizations` and `Users`. |
+
+Nobody becomes a member of any organisation automatically, the legacy organisation included. The start-up check also refuses to start if one of the last-Owner triggers is missing.
+
+Rules that the service layer must enforce when the endpoints arrive, because the database cannot:
+
+- An identity is only created or linked from a token whose signature and issuer have been validated, and two identities are linked only after the user has proved both; never because their e-mail addresses match.
+- Accepting an invitation requires a signed-in user whose identity has a verified e-mail equal to the invitation's, and the invitation must not be expired, revoked or accepted. An expired invitation stays "open" for the uniqueness rule until it is revoked, so inviting the same address again first revokes the old invitation.
+- Only Owners and Admins of an organisation may invite or change memberships there, and only an Owner may promote someone to Owner. The inviter's and actor's membership is checked in the service, because a database rule would stop members from ever leaving.
+- An Owner whose user account is disabled still counts as an Owner for the database rule; the service decides how to treat disabled Owners.
+- Audit `Details` must never contain access tokens, invitation tokens or token hashes.
+
 ## Database backup and restore
 
 > **Before the first start after updating:** a normal start of the API (`dotnet run`, or starting it from an IDE) **automatically migrates the existing database** it is configured to use, for example `src/MeetingRoomBooking.Api/meeting-room-booking.db`. The first start after the organisation changes rebuilds the `MeetingRooms` and `Bookings` tables. Make your own separate backup first: stop the API and copy the database file, together with any `-wal` and `-shm` files, to a folder outside the repository. The automatic backup described below is an extra safeguard, not a replacement for your own copy.
@@ -622,6 +643,7 @@ Backend scenarios include:
 - Migrations: a database on the previous schema keeps every room, booking, ID and UTC timestamp; the AUTOINCREMENT counters never go back; both overlap triggers survive; organisation keys and indexes hold.
 - Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails or when a non-empty database has no migration history, and a real restore of a backup file.
 - Organisation scope: the existing endpoints never show or change data of another organisation, and their JSON is unchanged.
+- Identities, memberships, invitations and audit events: unique keys, foreign keys, check constraints, the last-Owner triggers, memberships across several organisations, and a migration from the schema of phase 1, PR 1 that keeps every room, booking and overlap trigger.
 
 Migration tests build their databases with raw SQL in their own temp folders. A guard stops any test from opening a database outside the system temp folder, and the test host receives its connection string explicitly, so tests can never touch the development database.
 
@@ -734,7 +756,7 @@ At the time of completion, the project passes:
 
 ```text
 Backend:
-82 passed
+105 passed
 0 failed
 
 Frontend:
