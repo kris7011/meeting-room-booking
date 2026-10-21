@@ -1,5 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-
 namespace MeetingRoomBooking.Api.Data;
 
 public static class DatabaseExtensions
@@ -14,6 +12,16 @@ public static class DatabaseExtensions
             scope.ServiceProvider
                 .GetRequiredService<BookingDbContext>();
 
-        await dbContext.Database.MigrateAsync();
+        var logger =
+            scope.ServiceProvider
+                .GetRequiredService<ILoggerFactory>()
+                .CreateLogger(typeof(DatabaseInitializer));
+
+        // Defaults to a "backups" folder next to the database file.
+        await DatabaseInitializer.InitialiseAsync(
+            dbContext,
+            application.Configuration["Database:BackupDirectory"],
+            scope.ServiceProvider.GetRequiredService<TimeProvider>(),
+            logger);
     }
 }
