@@ -1,3 +1,4 @@
+using MeetingRoomBooking.Api.Features.Audit;
 using MeetingRoomBooking.Api.Features.Bookings;
 using MeetingRoomBooking.Api.Features.Organizations;
 using MeetingRoomBooking.Api.Features.Rooms;
@@ -36,6 +37,18 @@ public sealed class BookingDbContext(
     public DbSet<Booking> Bookings =>
         Set<Booking>();
 
+    public DbSet<UserIdentity> UserIdentities =>
+        Set<UserIdentity>();
+
+    public DbSet<Membership> Memberships =>
+        Set<Membership>();
+
+    public DbSet<Invitation> Invitations =>
+        Set<Invitation>();
+
+    public DbSet<AuditEvent> AuditEvents =>
+        Set<AuditEvent>();
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
@@ -52,6 +65,295 @@ public sealed class BookingDbContext(
 
         ConfigureBookings(
             modelBuilder.Entity<Booking>());
+
+        ConfigureUserIdentities(
+            modelBuilder.Entity<UserIdentity>());
+
+        ConfigureMemberships(
+            modelBuilder.Entity<Membership>());
+
+        ConfigureInvitations(
+            modelBuilder.Entity<Invitation>());
+
+        ConfigureAuditEvents(
+            modelBuilder.Entity<AuditEvent>());
+    }
+
+    private static void ConfigureUserIdentities(
+        EntityTypeBuilder<UserIdentity> builder)
+    {
+        builder.ToTable(
+            "UserIdentities",
+            tableBuilder =>
+            {
+                tableBuilder.HasCheckConstraint(
+                    "CK_UserIdentities_Provider",
+                    "\"Provider\" IN ('Entra', 'ExternalId')");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_UserIdentities_IssuerAndSubject",
+                    "length(\"Issuer\") > 0 AND length(\"Subject\") > 0");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_UserIdentities_VerifiedEmail",
+                    "\"VerifiedEmail\" IS NULL OR (\"VerifiedEmail\" = lower(trim(\"VerifiedEmail\")) AND instr(\"VerifiedEmail\", '@') > 1)");
+            });
+
+        builder.HasKey(identity => identity.Id);
+
+        builder.Property(identity => identity.Provider)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .IsRequired();
+
+        builder.Property(identity => identity.Issuer)
+            .HasMaxLength(UserIdentity.MaximumIssuerLength)
+            .IsRequired();
+
+        builder.Property(identity => identity.Subject)
+            .HasMaxLength(UserIdentity.MaximumSubjectLength)
+            .IsRequired();
+
+        builder.Property(identity => identity.VerifiedEmail)
+            .HasMaxLength(UserIdentity.MaximumEmailLength);
+
+        builder.Property(identity => identity.CreatedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.Property(identity => identity.LastUsedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(identity => identity.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // One identity belongs to exactly one user.
+        builder.HasIndex(
+                identity => new
+                {
+                    identity.Issuer,
+                    identity.Subject
+                })
+            .IsUnique()
+            .HasDatabaseName("UX_UserIdentities_Issuer_Subject");
+
+        // Deliberately not unique: the same e-mail on two identities does not
+        // make them the same person.
+        builder.HasIndex(identity => identity.VerifiedEmail)
+            .HasDatabaseName("IX_UserIdentities_VerifiedEmail");
+    }
+
+    private static void ConfigureMemberships(
+        EntityTypeBuilder<Membership> builder)
+    {
+        builder.ToTable(
+            "Memberships",
+            tableBuilder =>
+                tableBuilder.HasCheckConstraint(
+                    "CK_Memberships_Role",
+                    "\"Role\" IN ('Owner', 'Admin', 'Member')"));
+
+        // At most one membership per user and organisation.
+        builder.HasKey(
+            membership => new
+            {
+                membership.OrganizationId,
+                membership.UserId
+            });
+
+        builder.Property(membership => membership.Role)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .IsRequired();
+
+        builder.Property(membership => membership.CreatedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.Property(membership => membership.UpdatedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.HasOne<Organization>()
+            .WithMany()
+            .HasForeignKey(membership => membership.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(membership => membership.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(membership => membership.CreatedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // "Which organisations am I in" and "who owns this organisation".
+        builder.HasIndex(membership => membership.UserId)
+            .HasDatabaseName("IX_Memberships_UserId");
+
+        builder.HasIndex(
+                membership => new
+                {
+                    membership.OrganizationId,
+                    membership.Role
+                })
+            .HasDatabaseName("IX_Memberships_OrganizationId_Role");
+    }
+
+    private static void ConfigureInvitations(
+        EntityTypeBuilder<Invitation> builder)
+    {
+        builder.ToTable(
+            "Invitations",
+            tableBuilder =>
+            {
+                // An invitation never grants ownership.
+                tableBuilder.HasCheckConstraint(
+                    "CK_Invitations_Role",
+                    "\"Role\" IN ('Admin', 'Member')");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_Invitations_Email",
+                    "\"Email\" = lower(trim(\"Email\")) AND instr(\"Email\", '@') > 1");
+
+                // Only a lower-case hex SHA-256 fits: a raw token is rejected.
+                tableBuilder.HasCheckConstraint(
+                    "CK_Invitations_TokenHash",
+                    $"length(\"TokenHash\") = {InvitationToken.HashLength} AND \"TokenHash\" NOT GLOB '*[^0-9a-f]*'");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_Invitations_Expiry",
+                    "\"ExpiresUtc\" > \"CreatedUtc\"");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_Invitations_Accepted",
+                    "(\"AcceptedByUserId\" IS NULL) = (\"AcceptedUtc\" IS NULL)");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_Invitations_AcceptedOrRevoked",
+                    "\"AcceptedUtc\" IS NULL OR \"RevokedUtc\" IS NULL");
+            });
+
+        builder.HasKey(invitation => invitation.Id);
+
+        builder.Property(invitation => invitation.Email)
+            .HasMaxLength(Invitation.MaximumEmailLength)
+            .IsRequired();
+
+        builder.Property(invitation => invitation.Role)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .IsRequired();
+
+        builder.Property(invitation => invitation.TokenHash)
+            .HasMaxLength(InvitationToken.HashLength)
+            .IsRequired();
+
+        builder.Property(invitation => invitation.CreatedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.Property(invitation => invitation.ExpiresUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.Property(invitation => invitation.AcceptedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.Property(invitation => invitation.RevokedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.HasOne<Organization>()
+            .WithMany()
+            .HasForeignKey(invitation => invitation.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(invitation => invitation.InvitedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(invitation => invitation.AcceptedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(invitation => invitation.TokenHash)
+            .IsUnique()
+            .HasDatabaseName("UX_Invitations_TokenHash");
+
+        // One open invitation per e-mail and organisation; the same address
+        // can be invited to other organisations.
+        builder.HasIndex(
+                invitation => new
+                {
+                    invitation.OrganizationId,
+                    invitation.Email
+                })
+            .IsUnique()
+            .HasFilter("\"AcceptedUtc\" IS NULL AND \"RevokedUtc\" IS NULL")
+            .HasDatabaseName("UX_Invitations_OrganizationId_Email_Open");
+    }
+
+    private static void ConfigureAuditEvents(
+        EntityTypeBuilder<AuditEvent> builder)
+    {
+        builder.ToTable("AuditEvents");
+
+        builder.HasKey(auditEvent => auditEvent.Id);
+
+        builder.Property(auditEvent => auditEvent.Type)
+            .HasConversion<string>()
+            .HasMaxLength(AuditEvent.MaximumTypeLength)
+            .IsRequired();
+
+        builder.Property(auditEvent => auditEvent.OccurredUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.HasOne<Organization>()
+            .WithMany()
+            .HasForeignKey(auditEvent => auditEvent.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(auditEvent => auditEvent.ActorUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(auditEvent => auditEvent.TargetUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(
+                auditEvent => new
+                {
+                    auditEvent.OrganizationId,
+                    auditEvent.OccurredUtc
+                })
+            .HasDatabaseName("IX_AuditEvents_OrganizationId_OccurredUtc");
     }
 
     private static void ConfigureUsers(
