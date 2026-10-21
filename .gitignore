@@ -105,6 +105,9 @@ healthchecksdb
 *.sqlite-wal
 *.sqlite-journal
 
+# Backups written before migrations (see "Database backup and restore")
+backups/
+
 
 # ------------------------------------------------------------
 # Node.js and npm

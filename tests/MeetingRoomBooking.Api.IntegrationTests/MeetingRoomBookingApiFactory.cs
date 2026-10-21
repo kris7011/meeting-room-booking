@@ -27,10 +27,31 @@ public sealed class MeetingRoomBookingApiFactory
             Path.GetTempPath(),
             $"meeting-room-booking-tests-{Guid.NewGuid():N}.db");
 
+    /// <summary>The test's own SQLite file under the system temp folder.</summary>
+    public string DatabasePath => databasePath;
+
+    public string ConnectionString =>
+        $"Data Source={databasePath};Pooling=False";
+
+    private string BackupDirectory =>
+        $"{databasePath}-backups";
+
     protected override void ConfigureWebHost(
         IWebHostBuilder builder)
     {
+        TestDatabaseGuard.EnsureIsolated(databasePath);
+
         builder.UseEnvironment("Testing");
+
+        // Set in configuration as well, so Program never even reads the
+        // development connection string from appsettings.json.
+        builder.UseSetting(
+            "ConnectionStrings:BookingDatabase",
+            ConnectionString);
+
+        builder.UseSetting(
+            "Database:BackupDirectory",
+            BackupDirectory);
 
         builder.ConfigureServices(
             services =>
@@ -44,7 +65,7 @@ public sealed class MeetingRoomBookingApiFactory
                 services.AddDbContext<BookingDbContext>(
                     options =>
                         options.UseSqlite(
-                            $"Data Source={databasePath};Pooling=False"));
+                            ConnectionString));
 
                 services.RemoveAll<TimeProvider>();
 
@@ -71,6 +92,13 @@ public sealed class MeetingRoomBookingApiFactory
 
         DeleteDatabaseFile(
             $"{databasePath}-wal");
+
+        if (Directory.Exists(BackupDirectory))
+        {
+            Directory.Delete(
+                BackupDirectory,
+                recursive: true);
+        }
     }
 
     private static void DeleteDatabaseFile(

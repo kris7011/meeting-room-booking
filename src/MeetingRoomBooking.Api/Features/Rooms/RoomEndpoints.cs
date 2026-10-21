@@ -28,6 +28,20 @@ public static class RoomEndpoints
         return endpoints;
     }
 
+    // The original, unauthenticated endpoints only ever list the legacy
+    // organisation's rooms, so rooms of organisations created later stay
+    // hidden from callers who have not signed in.
+    private static IQueryable<MeetingRoom> LegacyRooms(
+        BookingDbContext dbContext)
+    {
+        return dbContext.MeetingRooms
+            .AsNoTracking()
+            .Where(
+                room =>
+                    room.OrganizationId == LegacyOrganization.Id
+                    && room.ArchivedUtc == null);
+    }
+
     // Return the smallest fitting free rooms first. Availability is advisory:
     // the SQLite overlap constraint still decides whether a booking succeeds.
     private static async Task<IResult> GetAvailableAsync(
@@ -66,8 +80,7 @@ public static class RoomEndpoints
         var start = startUtc.Value.ToUniversalTime();
         var end = endUtc.Value.ToUniversalTime();
 
-        var rooms = await dbContext.MeetingRooms
-            .AsNoTracking()
+        var rooms = await LegacyRooms(dbContext)
             .Where(room => room.Capacity >= minimum)
             .Where(room => !dbContext.Bookings.Any(booking =>
                 booking.RoomId == room.Id &&
@@ -87,8 +100,7 @@ public static class RoomEndpoints
         CancellationToken cancellationToken)
     {
         var rooms =
-            await dbContext.MeetingRooms
-                .AsNoTracking()
+            await LegacyRooms(dbContext)
                 .OrderBy(room => room.Name)
                 .Select(
                     room =>
