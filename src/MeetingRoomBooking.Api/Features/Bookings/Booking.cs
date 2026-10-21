@@ -13,6 +13,12 @@ public sealed class Booking
 
     public int Id { get; private set; }
 
+    /// <summary>
+    /// Always the room's organisation; the database enforces this with a
+    /// foreign key on (OrganizationId, RoomId).
+    /// </summary>
+    public int OrganizationId { get; private set; }
+
     public int RoomId { get; private set; }
 
     public string Title { get; private set; } =
@@ -39,10 +45,21 @@ public sealed class Booking
         private set;
     }
 
+    /// <summary>
+    /// The signed-in user who created the booking. Null for bookings made
+    /// before sign-in existed, which have no owner.
+    /// </summary>
+    public int? CreatedByUserId { get; private set; }
+
+    public DateTimeOffset? UpdatedUtc { get; private set; }
+
+    public int? UpdatedByUserId { get; private set; }
+
     public MeetingRoom Room { get; private set; } =
         null!;
 
     public static Booking Create(
+        int organizationId,
         int roomId,
         string title,
         string bookedBy,
@@ -50,8 +67,18 @@ public sealed class Booking
         DateTimeOffset endUtc,
         DateTimeOffset createdUtc)
     {
+        // There is deliberately no database default to fall back on: a
+        // booking that does not name its organisation is a bug.
+        if (organizationId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(organizationId),
+                "A valid organisation is required.");
+        }
+
         var booking = new Booking
         {
+            OrganizationId = organizationId,
             CreatedUtc = createdUtc.ToUniversalTime()
         };
 

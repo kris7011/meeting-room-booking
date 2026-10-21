@@ -37,15 +37,26 @@ public sealed record BookingMutationResult(
     }
 }
 
+/// <summary>
+/// Bookings behind the original, unauthenticated /api/bookings endpoints.
+/// They only ever see and change the legacy organisation, so data of
+/// organisations created later cannot be reached without signing in.
+/// </summary>
 public sealed class BookingService(
     BookingDbContext dbContext,
     TimeProvider timeProvider)
 {
+    private IQueryable<Booking> LegacyBookings =>
+        dbContext.Bookings
+            .Where(
+                booking =>
+                    booking.OrganizationId == LegacyOrganization.Id);
+
     public async Task<IReadOnlyCollection<Booking>>
         GetAllAsync(
             CancellationToken cancellationToken)
     {
-        return await dbContext.Bookings
+        return await LegacyBookings
             .AsNoTracking()
             .Include(booking => booking.Room)
             .OrderBy(booking => booking.StartUtc)
@@ -57,7 +68,7 @@ public sealed class BookingService(
         int bookingId,
         CancellationToken cancellationToken)
     {
-        return await dbContext.Bookings
+        return await LegacyBookings
             .AsNoTracking()
             .Include(booking => booking.Room)
             .SingleOrDefaultAsync(
@@ -115,6 +126,7 @@ public sealed class BookingService(
 
         var booking =
             Booking.Create(
+                organizationId: LegacyOrganization.Id,
                 roomId: request.RoomId,
                 title: request.Title!,
                 bookedBy: request.BookedBy!,
@@ -150,7 +162,7 @@ public sealed class BookingService(
         CancellationToken cancellationToken)
     {
         var booking =
-            await dbContext.Bookings
+            await LegacyBookings
                 .SingleOrDefaultAsync(
                     booking =>
                         booking.Id == bookingId,
@@ -239,7 +251,7 @@ public sealed class BookingService(
         CancellationToken cancellationToken)
     {
         var booking =
-            await dbContext.Bookings
+            await LegacyBookings
                 .SingleOrDefaultAsync(
                     booking =>
                         booking.Id == bookingId,
@@ -276,7 +288,9 @@ public sealed class BookingService(
         return dbContext.MeetingRooms
             .AnyAsync(
                 room =>
-                    room.Id == roomId,
+                    room.Id == roomId
+                    && room.OrganizationId == LegacyOrganization.Id
+                    && room.ArchivedUtc == null,
                 cancellationToken);
     }
 
