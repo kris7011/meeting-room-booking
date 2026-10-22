@@ -150,6 +150,8 @@ GET    /health
 
 GET    /api/rooms
 
+GET    /api/me              (requires a Microsoft Entra access token)
+
 GET    /api/bookings
 GET    /api/bookings/{id}
 POST   /api/bookings
@@ -289,7 +291,7 @@ Every meeting room belongs to an organisation, and a booking always belongs to i
 
 ### Identities, memberships, invitations and audit events
 
-The data model for self-service organisations is in place; no endpoint uses it yet, and nothing in it requires sign-in.
+The data model for self-service organisations is in place. Only `GET /api/me` reads it (to find the user linked to the signed-in identity); see [Sign-in with Microsoft Entra ID](#sign-in-with-microsoft-entra-id).
 
 | Table | Key and relations | Enforced by the database |
 | --- | --- | --- |
@@ -548,6 +550,68 @@ In the Development environment, the API allows the origins listed in `appsetting
 
 Outside Development no CORS policy is registered, even if `Cors:AllowedOrigins` is set, so the API sends no CORS headers and browsers keep blocking cross-origin requests. Native mobile apps are not affected by CORS.
 
+## Sign-in with Microsoft Entra ID
+
+The API validates Microsoft Entra ID access tokens itself and decides from them who the caller is. A client never tells the API who the user is: a name, e-mail or user ID sent in a request body is never trusted for identity.
+
+What is in place:
+
+- `GET /api/me` requires a valid access token and returns the caller as the API sees them: display name, `preferred_username`, tenant ID and, when the identity is already linked, the API's own user (`publicId`, display name). It is read-only and creates no users or identities.
+- The room and booking endpoints are unchanged and still need no sign-in. A token sent to them, valid or not, is ignored.
+- Without `Entra:ApiClientId` the API starts as before, and `GET /api/me` answers `503` with `code: "authentication_not_configured"`.
+
+### What a token must satisfy
+
+| Check | Rule | Failure |
+| --- | --- | --- |
+| Signature | RS256, signed with a key from the Microsoft identity platform metadata (`https://login.microsoftonline.com/organizations/v2.0`). Unsigned (`alg: none`) and HMAC tokens are rejected. | 401 |
+| Signing key issuer | A key that the metadata publishes for a specific issuer may only sign tokens of that issuer (`EnableAadSigningKeyIssuerValidation`). | 401 |
+| Issuer | Exactly `https://login.microsoftonline.com/{tid}/v2.0`, where `{tid}` is the token's own `tid` claim, a GUID. v1.0 tokens (`https://sts.windows.net/{tid}/`) are rejected, so one person never gets two issuers. | 401 |
+| Tenant | Any work or school tenant, or only those in `Entra:AllowedTenantIds` when it is set. | 401 |
+| Audience | The API's client ID or its Application ID URI (`api://{client ID}` by default). | 401 |
+| Lifetime | `exp` is required; up to 2 minutes of clock skew. | 401 |
+| Delegated scope | `scp` contains `Entra:RequiredScope` (`access_as_user`). App-only tokens (roles, no `scp`) never pass as a user. | 403 |
+| User | `tid` and `oid` are present. A linked user whose account is disabled gets `403` with `code: "user_disabled"`. | 403 |
+
+The identity key is the validated `iss` together with `oid`, the same key as the unique index on `UserIdentities (Issuer, Subject)`. `sub` is not used, because it differs between the app's ID token and the API's access token, and the e-mail address is never a key.
+
+### Configuration
+
+```json
+"Entra": {
+  "Instance": "https://login.microsoftonline.com",
+  "ApiClientId": "",
+  "RequiredScope": "access_as_user",
+  "AllowedTenantIds": []
+}
+```
+
+None of these values is a secret: the API validates tokens and never requests one, so it has no client secret. Set the API's client ID without editing the file, for example:
+
+```powershell
+$env:Entra__ApiClientId = "<Application (client) ID of the API registration>"
+dotnet run --project .\src\MeetingRoomBooking.Api\MeetingRoomBooking.Api.csproj --launch-profile http
+```
+
+The API stops at start-up if a value is set but invalid (a client ID or tenant ID that is not a GUID, an instance that is not HTTPS, or more than one scope).
+
+### Manual steps in the Microsoft Entra admin center
+
+The API needs its own app registration, separate from the mobile app's:
+
+1. **App registrations → New registration**, for example "Room Booking API". Supported account types: *Accounts in any organizational directory* (multi-tenant), or *this directory only* together with `Entra:AllowedTenantIds`.
+2. **Expose an API**: set the Application ID URI to `api://<API client ID>` and add the scope `access_as_user` (who can consent: admins and users).
+3. **Manifest**: set `"requestedAccessTokenVersion": 2` (in the older manifest format `"accessTokenAcceptedVersion": 2`). Otherwise Entra issues v1.0 tokens, which this API rejects.
+4. In the **mobile app's** registration: **API permissions → Add a permission → My APIs → Room Booking API → Delegated → access_as_user**. Grant admin consent if the tenant does not allow user consent.
+5. For users of other tenants: an administrator of each tenant must consent to the mobile app (and with it the API) before its users can sign in.
+
+### Not done yet
+
+- Creating users and linking identities (just-in-time on first sign-in, or through invitations), with audit events.
+- Organisation-based access control on rooms and bookings: the existing endpoints stay anonymous and limited to the legacy organisation until they check memberships.
+- Taking `BookedBy` from the signed-in user instead of the request body.
+- CORS allows only `Accept` and `Content-Type`, so browser clients cannot send `Authorization` yet; native apps are not affected.
+
 ## Build and test
 
 ### Backend
@@ -644,6 +708,7 @@ Backend scenarios include:
 - Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails or when a non-empty database has no migration history, and a real restore of a backup file.
 - Organisation scope: the existing endpoints never show or change data of another organisation, and their JSON is unchanged.
 - Identities, memberships, invitations and audit events: unique keys, foreign keys, check constraints, the last-Owner triggers, memberships across several organisations, and a migration from the schema of phase 1, PR 1 that keeps every room, booking and overlap trigger.
+- Sign-in: `GET /api/me` with tokens signed by a test key that exists only in the test process (no network, no real tenant): a valid token, both audiences, a linked and a disabled user, the same `oid` in another tenant, and rejection of a missing token, a wrong audience, issuer or tenant, a v1.0 issuer, an expired, unsigned, HMAC-signed or foreign-key-signed token, a signing key published for another tenant, a missing scope and an app-only token. The room endpoints stay anonymous, and invalid `Entra` settings stop the API at start-up.
 
 Migration tests build their databases with raw SQL in their own temp folders. A guard stops any test from opening a database outside the system temp folder, and the test host receives its connection string explicitly, so tests can never touch the development database.
 
@@ -756,7 +821,7 @@ At the time of completion, the project passes:
 
 ```text
 Backend:
-105 passed
+139 passed
 0 failed
 
 Frontend:
@@ -770,8 +835,8 @@ The Angular production build and the .NET Release build both complete successful
 
 With more development time, the following could be added:
 
-- Authentication and authorisation.
-- Identification of the currently signed in user.
+- Organisation-based authorisation on the room and booking endpoints (sign-in and token validation are in place, see above).
+- Creating users and linking identities on first sign-in.
 - Calendar style schedule view.
 - Filtering by room or date.
 - Recurring bookings.
