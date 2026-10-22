@@ -31,6 +31,17 @@ public static class EntraTestTokens
     public const string ObjectId =
         "12345678-90ab-4cde-8f01-234567890abc";
 
+    /// <summary>
+    /// Microsoft's consumer tenant, written out here rather than taken from
+    /// the production constant, so a typo there fails the tests.
+    /// </summary>
+    public const string PersonalAccountsTenantId =
+        "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+    /// <summary>Personal accounts get object IDs of this shape.</summary>
+    public const string PersonalObjectId =
+        "00000000-0000-0000-4d2a-7b3c9e1f5a60";
+
     public const string KeyId =
         "test-signing-key";
 
@@ -64,6 +75,18 @@ public static class EntraTestTokens
             ["azp"] = "11111111-2222-4333-8444-555555555555",
             ["ver"] = "2.0"
         };
+    }
+
+    /// <summary>A delegated token for an Outlook.com, Hotmail or Live.com account.</summary>
+    public static Dictionary<string, object> PersonalAccountClaims()
+    {
+        var claims =
+            UserClaims(PersonalAccountsTenantId);
+
+        claims["oid"] = PersonalObjectId;
+        claims["preferred_username"] = "soren@outlook.example";
+
+        return claims;
     }
 
     public static string Create(

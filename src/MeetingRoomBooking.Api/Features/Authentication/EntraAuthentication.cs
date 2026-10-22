@@ -17,6 +17,17 @@ public static class EntraAuthentication
     public const string SignedInUserPolicy =
         "EntraSignedInUser";
 
+    /// <summary>
+    /// The tenant that personal Microsoft accounts (Outlook.com, Hotmail,
+    /// Live.com) sign in through: their tokens carry it as <c>tid</c> and in
+    /// <c>iss</c>.
+    /// </summary>
+    public const string PersonalAccountsTenantId =
+        "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+    public static readonly Guid PersonalAccountsTenant =
+        Guid.Parse(PersonalAccountsTenantId);
+
     /// <summary>Claim names as they appear in the token (inbound mapping is off).</summary>
     public static class Claims
     {
@@ -77,15 +88,22 @@ public static class EntraAuthentication
         var issuerValidator =
             new EntraIssuerValidator(
                 instance,
-                options.AllowedTenantIds.Select(Guid.Parse));
+                options.AllowedTenantIds.Select(Guid.Parse),
+                options.AllowPersonalAccounts);
 
         authentication.AddJwtBearer(
             jwt =>
             {
-                // Signing keys come from the metadata of the "organizations"
-                // endpoint; they are the same for every tenant.
+                // Signing keys come from the metadata of the "common"
+                // endpoint: the keys shared by every tenant, plus the keys
+                // only personal accounts are signed with. "organizations"
+                // lacks the latter, so it is used only when personal accounts
+                // are off. The issuer validator, not the key set, decides
+                // which tenants are accepted.
                 jwt.Authority =
-                    $"{instance}/organizations/v2.0";
+                    options.AllowPersonalAccounts
+                        ? $"{instance}/common/v2.0"
+                        : $"{instance}/organizations/v2.0";
 
                 jwt.MapInboundClaims = false;
 
@@ -115,6 +133,8 @@ public static class EntraAuthentication
 
                 // Rejects a token signed with a key that Entra publishes for
                 // another issuer (keys in the metadata can name their issuer).
+                // The personal-account keys name the consumer tenant's
+                // issuer, so they never validate a work or school token.
                 jwt.TokenValidationParameters
                     .EnableAadSigningKeyIssuerValidation();
             });
@@ -165,6 +185,13 @@ public static class EntraAuthentication
             {
                 throw new InvalidOperationException(
                     $"Entra:AllowedTenantIds contains '{tenantId}', which is not a tenant ID.");
+            }
+
+            if (Guid.Parse(tenantId) == PersonalAccountsTenant)
+            {
+                throw new InvalidOperationException(
+                    "Entra:AllowedTenantIds lists work and school tenants only. " +
+                    "Personal Microsoft accounts are allowed with Entra:AllowPersonalAccounts.");
             }
         }
     }

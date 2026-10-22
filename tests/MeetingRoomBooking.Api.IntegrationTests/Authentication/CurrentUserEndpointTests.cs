@@ -33,6 +33,16 @@ public sealed class CurrentUserEndpointTests
                     allowedTenantIds));
     }
 
+    private WebApplicationFactory<Program> FactoryWithoutPersonalAccounts()
+    {
+        return baseFactory.WithWebHostBuilder(
+            builder =>
+            {
+                builder.UseEntraTestTokens();
+                builder.UseSetting("Entra:AllowPersonalAccounts", "false");
+            });
+    }
+
     private static async Task<HttpResponseMessage> GetMeAsync(
         WebApplicationFactory<Program> factory,
         string? token)
@@ -155,6 +165,28 @@ public sealed class CurrentUserEndpointTests
         tenantNotAGuid["tid"] = "organizations";
         tenantNotAGuid["iss"] = IssuerFor("organizations");
 
+        // A work account claiming the consumer tenant's issuer, and the
+        // other way round.
+        var workTenantWithConsumerIssuer = UserClaims();
+        workTenantWithConsumerIssuer["iss"] = IssuerFor(PersonalAccountsTenantId);
+
+        var consumerTenantWithWorkIssuer = PersonalAccountClaims();
+        consumerTenantWithWorkIssuer["iss"] = IssuerFor(TenantId);
+
+        // The endpoint alias is not an issuer.
+        var consumersAliasIssuer = PersonalAccountClaims();
+        consumersAliasIssuer["iss"] = IssuerFor("consumers");
+
+        var consumersAliasTenant = PersonalAccountClaims();
+        consumersAliasTenant["tid"] = "consumers";
+        consumersAliasTenant["iss"] = IssuerFor("consumers");
+
+        var personalAccountV1Issuer = PersonalAccountClaims();
+        personalAccountV1Issuer["iss"] = $"https://sts.windows.net/{PersonalAccountsTenantId}/";
+
+        var personalAccountWrongAudience = PersonalAccountClaims();
+        personalAccountWrongAudience["aud"] = "11111111-2222-4333-8444-555555555555";
+
         return new TheoryData<string>
         {
             Create(wrongAudience),
@@ -163,6 +195,15 @@ public sealed class CurrentUserEndpointTests
             Create(foreignIssuer),
             Create(noTenant),
             Create(tenantNotAGuid),
+            Create(workTenantWithConsumerIssuer),
+            Create(consumerTenantWithWorkIssuer),
+            Create(consumersAliasIssuer),
+            Create(consumersAliasTenant),
+            Create(personalAccountV1Issuer),
+            Create(personalAccountWrongAudience),
+            Create(PersonalAccountClaims(), expires: DateTime.UtcNow.AddMinutes(-5)),
+            Create(PersonalAccountClaims(), untrustedKey: true),
+            CreateUnsigned(PersonalAccountClaims()),
             Create(UserClaims(), expires: DateTime.UtcNow.AddMinutes(-5)),
             Create(UserClaims(), untrustedKey: true),
             Create(UserClaims(), symmetricKey: true),
@@ -222,6 +263,106 @@ public sealed class CurrentUserEndpointTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, rejected.StatusCode);
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+    }
+
+    [Fact]
+    public async Task PersonalAccount_ReturnsTheIdentityFromTheToken()
+    {
+        using var response =
+            await GetMeAsync(Factory(), Create(PersonalAccountClaims()));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await JsonAsync(response);
+        Assert.Equal("Søren Ærø", body.GetProperty("displayName").GetString());
+        Assert.Equal("soren@outlook.example", body.GetProperty("username").GetString());
+        Assert.Equal(PersonalAccountsTenantId, body.GetProperty("tenantId").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("user").ValueKind);
+    }
+
+    [Fact]
+    public async Task PersonalAccount_SignedWithAPersonalAccountKey_IsAccepted()
+    {
+        // The keys only personal accounts are signed with name the consumer
+        // tenant's issuer in the metadata.
+        using var response =
+            await GetMeAsync(
+                Factory(keyIssuer: IssuerFor(PersonalAccountsTenantId)),
+                Create(PersonalAccountClaims()));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkAccount_SignedWithAPersonalAccountKey_IsRejected()
+    {
+        using var response =
+            await GetMeAsync(
+                Factory(keyIssuer: IssuerFor(PersonalAccountsTenantId)),
+                Create(UserClaims()));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PersonalAccount_SignedWithAWorkTenantKey_IsRejected()
+    {
+        using var response =
+            await GetMeAsync(
+                Factory(keyIssuer: IssuerFor(TenantId)),
+                Create(PersonalAccountClaims()));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PersonalAccount_WithoutTheApiScope_IsForbidden()
+    {
+        var claims = PersonalAccountClaims();
+        claims["scp"] = "User.Read";
+
+        using var response = await GetMeAsync(Factory(), Create(claims));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AllowedTenants_DoNotShutOutPersonalAccounts()
+    {
+        var factory = Factory(IssuerTemplate, OtherTenantId);
+
+        using var personal = await GetMeAsync(factory, Create(PersonalAccountClaims()));
+        using var otherWorkTenant = await GetMeAsync(factory, Create(UserClaims(TenantId)));
+
+        Assert.Equal(HttpStatusCode.OK, personal.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, otherWorkTenant.StatusCode);
+    }
+
+    [Fact]
+    public async Task PersonalAccountsOff_RejectsPersonalAccountsOnly()
+    {
+        var factory = FactoryWithoutPersonalAccounts();
+
+        using var personal = await GetMeAsync(factory, Create(PersonalAccountClaims()));
+        using var work = await GetMeAsync(factory, Create(UserClaims()));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, personal.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, work.StatusCode);
+    }
+
+    [Fact]
+    public async Task PersonalAccount_IsNotTheWorkIdentityWithTheSameObjectId()
+    {
+        var factory = Factory();
+        await SeedUserAsync(factory, disabled: false);
+
+        var claims = PersonalAccountClaims();
+        claims["oid"] = ObjectId;
+
+        using var response = await GetMeAsync(factory, Create(claims));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(JsonValueKind.Null, (await JsonAsync(response)).GetProperty("user").ValueKind);
     }
 
     [Theory]

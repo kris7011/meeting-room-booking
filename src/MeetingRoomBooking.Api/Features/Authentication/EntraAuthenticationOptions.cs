@@ -34,12 +34,22 @@ public sealed class EntraAuthenticationOptions
         "access_as_user";
 
     /// <summary>
-    /// Tenants whose users are accepted. Empty accepts work and school
-    /// accounts of any tenant (a multi-tenant API); access to data is then
-    /// decided by memberships, not by the tenant.
+    /// Work and school tenants whose users are accepted. Empty accepts work
+    /// and school accounts of any tenant (a multi-tenant API); access to data
+    /// is then decided by memberships, not by the tenant. Personal accounts
+    /// are governed by <see cref="AllowPersonalAccounts"/> alone, so the
+    /// consumer tenant may not be listed here.
     /// </summary>
     public string[] AllowedTenantIds { get; set; } =
         [];
+
+    /// <summary>
+    /// Whether personal Microsoft accounts (Outlook.com, Hotmail, Live.com)
+    /// are accepted. Their tokens come from the consumer tenant
+    /// <see cref="EntraAuthentication.PersonalAccountsTenantId"/>.
+    /// </summary>
+    public bool AllowPersonalAccounts { get; set; } =
+        true;
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ApiClientId);
