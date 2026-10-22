@@ -1,6 +1,8 @@
 using MeetingRoomBooking.Api.Data;
+using MeetingRoomBooking.Api.Features.Authentication;
 using MeetingRoomBooking.Api.Features.Bookings;
 using MeetingRoomBooking.Api.Features.Rooms;
+using MeetingRoomBooking.Api.Features.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -52,6 +54,12 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 
 builder.Services.AddScoped<BookingService>();
 
+// Microsoft Entra ID access tokens (Entra section in configuration). Only
+// GET /api/me requires one; the room and booking endpoints are unchanged
+// and still anonymous. Without Entra:ApiClientId, /api/me answers 503.
+var entraOptions =
+    builder.AddEntraAuthentication();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -64,6 +72,9 @@ if (corsAllowedOrigins.Length > 0)
 {
     app.UseCors(DevelopmentClientsCorsPolicy);
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
@@ -92,6 +103,7 @@ app.MapGet(
 
 app.MapRoomEndpoints();
 app.MapBookingEndpoints();
+app.MapCurrentUserEndpoints(entraOptions);
 
 await app.InitialiseDatabaseAsync();
 
