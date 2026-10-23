@@ -23,6 +23,18 @@ public sealed record InvitationCreatedResponse(
 public sealed record AcceptInvitationRequest(
     string? Token);
 
+/// <summary>An open invitation, without its token (which only the invitee has).</summary>
+/// <param name="CanRevoke">The caller's role may revoke it (Admins only Member invitations).</param>
+public sealed record InvitationResponse(
+    int Id,
+    string Email,
+    string Role,
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset ExpiresUtc,
+    bool IsExpired,
+    string InvitedBy,
+    bool CanRevoke);
+
 public static class InvitationEndpoints
 {
     public static IEndpointRouteBuilder MapInvitationEndpoints(
@@ -54,6 +66,43 @@ public static class InvitationEndpoints
             .WithTags("Organizations");
 
         return endpoints;
+    }
+
+    /// <summary>GET and DELETE …/invitations: Owners and Admins see open invitations and revoke them.</summary>
+    public static RouteGroupBuilder MapOrganizationInvitationEndpoints(
+        this RouteGroupBuilder organization)
+    {
+        organization.MapGet("/invitations", ListAsync)
+            .RequireOwnerOrAdmin()
+            .WithName("GetInvitations")
+            .WithTags("Organizations");
+
+        organization.MapDelete("/invitations/{invitationId:int}", RevokeAsync)
+            .RequireOwnerOrAdmin()
+            .WithName("RevokeInvitation")
+            .WithTags("Organizations");
+
+        return organization;
+    }
+
+    private static async Task<IResult> ListAsync(
+        CurrentOrganization organization,
+        InvitationService invitations,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await invitations.ListOpenAsync(organization.Required(), cancellationToken));
+
+    private static async Task<IResult> RevokeAsync(
+        int invitationId,
+        CurrentOrganization organization,
+        InvitationService invitations,
+        CancellationToken cancellationToken)
+    {
+        var failure =
+            await invitations.RevokeAsync(organization.Required(), invitationId, cancellationToken);
+
+        return failure == InvitationFailure.None
+            ? Results.NoContent()
+            : ToProblem(failure, errors: null);
     }
 
     private static async Task<IResult> CreateAsync(
@@ -139,14 +188,14 @@ public static class InvitationEndpoints
                     StatusCodes.Status403Forbidden,
                     "organization_permission_denied",
                     "Not allowed",
-                    "Only Owners and Admins may invite, and only Owners may invite Admins."),
+                    "Only Owners and Admins may invite or revoke invitations, and only Owners may invite Admins or revoke their invitations."),
 
             InvitationFailure.InvitationNotFound =>
                 ApiProblems.Create(
                     StatusCodes.Status404NotFound,
                     "invitation_not_found",
                     "Invitation not found",
-                    "No invitation matches this token."),
+                    "No open invitation matches this token or ID."),
 
             InvitationFailure.InvitationExpired =>
                 ApiProblems.Create(

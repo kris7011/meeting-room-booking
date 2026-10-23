@@ -358,6 +358,102 @@ public sealed class InvitationService(
             new AcceptedInvitation(organization.PublicId, organization.Name, organization.IsLegacy, invitation.Role));
     }
 
+    /// <summary>
+    /// The organisation's open invitations (neither accepted nor revoked),
+    /// expired ones included so they can be revoked or sent again. Never the
+    /// token or its hash.
+    /// </summary>
+    public async Task<IReadOnlyList<InvitationResponse>> ListOpenAsync(
+        OrganizationCaller caller,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = timeProvider.GetUtcNow();
+
+        var open =
+            await dbContext.Invitations
+                .AsNoTracking()
+                .Where(
+                    invitation =>
+                        invitation.OrganizationId == caller.OrganizationId &&
+                        invitation.AcceptedUtc == null &&
+                        invitation.RevokedUtc == null)
+                .Join(
+                    dbContext.Users,
+                    invitation => invitation.InvitedByUserId,
+                    user => user.Id,
+                    (invitation, user) => new { Invitation = invitation, InvitedBy = user.DisplayName })
+                .ToArrayAsync(cancellationToken);
+
+        return
+        [
+            .. open
+                .OrderByDescending(row => row.Invitation.CreatedUtc)
+                .Select(
+                    row =>
+                        new InvitationResponse(
+                            row.Invitation.Id,
+                            row.Invitation.Email,
+                            row.Invitation.Role.ToString(),
+                            row.Invitation.CreatedUtc,
+                            row.Invitation.ExpiresUtc,
+                            row.Invitation.IsExpired(nowUtc),
+                            row.InvitedBy,
+                            MayInvite(caller.Role, row.Invitation.Role)))
+        ];
+    }
+
+    /// <summary>
+    /// Revokes an open invitation of the organisation, so its link stops
+    /// working. Owners revoke any; Admins only invitations they could have
+    /// sent themselves (Member invitations).
+    /// </summary>
+    public async Task<InvitationFailure> RevokeAsync(
+        OrganizationCaller caller,
+        int invitationId,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = timeProvider.GetUtcNow();
+
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var invitation =
+            await dbContext.Invitations
+                .SingleOrDefaultAsync(
+                    candidate =>
+                        candidate.Id == invitationId &&
+                        candidate.OrganizationId == caller.OrganizationId &&
+                        candidate.AcceptedUtc == null &&
+                        candidate.RevokedUtc == null,
+                    cancellationToken);
+
+        if (invitation is null)
+        {
+            return InvitationFailure.InvitationNotFound;
+        }
+
+        if (!MayInvite(caller.Role, invitation.Role))
+        {
+            return InvitationFailure.PermissionDenied;
+        }
+
+        invitation.Revoke(nowUtc);
+
+        dbContext.AuditEvents.Add(
+            AuditEvent.Record(
+                AuditEventType.InvitationRevoked,
+                caller.OrganizationId,
+                caller.UserId,
+                targetUserId: null,
+                nowUtc,
+                new { email = invitation.Email, role = invitation.Role.ToString(), reason = "revoked" }));
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return InvitationFailure.None;
+    }
+
     /// <summary>Owners may invite Admins and Members; Admins only Members.</summary>
     public static bool MayInvite(
         MembershipRole inviterRole,
