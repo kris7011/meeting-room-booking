@@ -36,12 +36,25 @@ public sealed class MeetingRoomBookingApiFactory
     private string BackupDirectory =>
         $"{databasePath}-backups";
 
+    /// <summary>
+    /// <c>LegacyApi:AllowAnonymous</c>. The suites written before sign-in
+    /// existed exercise /api/rooms and /api/bookings in the anonymous demo
+    /// mode, so it is on by default here; the access-control tests turn it
+    /// off, which is the API's own default.
+    /// </summary>
+    public bool AllowAnonymousLegacyApi { get; init; } =
+        true;
+
     protected override void ConfigureWebHost(
         IWebHostBuilder builder)
     {
         TestDatabaseGuard.EnsureIsolated(databasePath);
 
         builder.UseEnvironment("Testing");
+
+        builder.UseSetting(
+            "LegacyApi:AllowAnonymous",
+            AllowAnonymousLegacyApi ? "true" : "false");
 
         // Set in configuration as well, so Program never even reads the
         // development connection string from appsettings.json.
