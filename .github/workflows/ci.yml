@@ -46,6 +46,46 @@ jobs:
           --configuration Release
           --no-build
 
+  claude-standards:
+    name: Claude standards installer smoke tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Test safe global instructions installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP ('claude-test-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $target = Join-Path $folder 'CLAUDE.md'
+          Set-Content -LiteralPath $target -Value 'Keep my existing personal instruction.' -NoNewline
+
+          ./scripts/Install-ClaudeUserStandards.ps1 -TargetFile $target -Preview
+          if ([System.IO.File]::ReadAllText($target) -ne 'Keep my existing personal instruction.') {
+            throw 'Preview modified the existing instructions.'
+          }
+
+          ./scripts/Install-ClaudeUserStandards.ps1 -TargetFile $target
+          $first = [System.IO.File]::ReadAllText($target)
+          if (-not $first.Contains('Keep my existing personal instruction.') -or
+              -not $first.Contains('Shared engineering standards (all projects)')) {
+            throw 'The installer did not preserve existing instructions and add the shared rules.'
+          }
+
+          ./scripts/Install-ClaudeUserStandards.ps1 -TargetFile $target
+          $second = [System.IO.File]::ReadAllText($target)
+          if ($first -cne $second) {
+            throw 'The installer is not idempotent.'
+          }
+
+          $backups = @(Get-ChildItem -LiteralPath $folder -Filter 'CLAUDE.md.backup.*')
+          if ($backups.Count -ne 1) {
+            throw 'Expected exactly one backup of existing instructions.'
+          }
+
   frontend:
     name: Frontend build and tests
     runs-on: ubuntu-latest
