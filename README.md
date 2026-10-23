@@ -153,9 +153,18 @@ POST   /api/me/registration                            (Microsoft Entra access t
 POST   /api/organizations/{organizationId}/invitations (Owner or Admin of the organisation)
 POST   /api/invitations/accept                         (the invited, registered user)
 
+GET    /api/organizations                              (a registered user's organisations and roles)
+POST   /api/organizations                              (any registered user; Idempotency-Key header)
+
 Every endpoint below: a valid access token and a membership of {organizationId}
+GET    /api/organizations/{organizationId}                       (details, your role, counts)
+PUT    /api/organizations/{organizationId}                       (Owner: rename)
 GET    /api/organizations/{organizationId}/rooms                 (?includeArchived=true: Owner/Admin)
 GET    /api/organizations/{organizationId}/rooms/available       (?startUtc&endUtc&minCapacity)
+POST   /api/organizations/{organizationId}/rooms                 (Owner/Admin)
+PUT    /api/organizations/{organizationId}/rooms/{id}            (Owner/Admin)
+POST   /api/organizations/{organizationId}/rooms/{id}/archive    (Owner/Admin)
+POST   /api/organizations/{organizationId}/rooms/{id}/restore    (Owner/Admin)
 GET    /api/organizations/{organizationId}/bookings              (?fromUtc&toUtc)
 GET    /api/organizations/{organizationId}/bookings/{id}
 POST   /api/organizations/{organizationId}/bookings
@@ -631,7 +640,7 @@ The API needs its own app registration, separate from the mobile app's:
 ### Not done yet
 
 - Linking a second identity (for example a work account and a personal account) to the same user.
-- Creating organisations, revoking invitations without replacing them, and changing or removing memberships through the API.
+- Revoking invitations without replacing them, and changing or removing memberships through the API.
 - CORS allows only `Accept` and `Content-Type`, so browser clients cannot send `Authorization` yet; native apps are not affected.
 
 ## Organisation access control
@@ -657,6 +666,40 @@ The membership and role are read from the database for every request; nothing in
 A new booking records the signed-in user as its creator (`CreatedByUserId`) and every change the user who made it (`UpdatedByUserId`, `UpdatedUtc`). `bookedBy` defaults to the user's display name when it is left out. Bookings made before sign-in have no creator, so only Owners and Admins can change them. The organisation responses add `createdByCurrentUser` and `canModify`, so a client can show or hide its edit and delete actions; the API checks every change itself regardless.
 
 The existing booking rules are unchanged: validation, the start in the future, the overlap triggers and `409 booking_overlap`. Booking changes now run in one `BEGIN IMMEDIATE` transaction each, so checking the room and writing the booking cannot be interleaved with another writer.
+
+### Creating organisations
+
+Any registered, enabled user can create an organisation and becomes its Owner; a user can be a member of any number of organisations. The legacy organisation and its rooms and bookings are untouched by this.
+
+```http
+POST /api/organizations
+Authorization: Bearer <access token>
+Idempotency-Key: 3f2a7c1e-9b4d-4e8a-a1f0-6c5d2b7e9a13
+Content-Type: application/json
+
+{ "name": "Acme Robotics" }
+```
+
+- The name is trimmed, runs of white space become one space, and it must then have 2 to 100 characters without control or formatting characters (`400` otherwise).
+- `Idempotency-Key` is required: a new random GUID for every new organisation, and the same one when a request is repeated (a retry after a timeout, a double tap). The same key with the same name returns the organisation it created, `200` with `Idempotent-Replayed: true`, instead of `201`; with another name it is `422 idempotency_key_reused`. Keys belong to their user. The unique index `UX_Organizations_CreatedByUserId_CreationRequestId` decides concurrent repeats.
+- The organisation (with a new random public ID), the Owner membership and the `OrganizationCreated` and `MembershipAdded` audit events are written in one `BEGIN IMMEDIATE` transaction: there is never an organisation without its Owner.
+- A user can create at most 10 organisations in 24 hours (`429 organization_creation_limit`); repeats do not count.
+
+`GET /api/organizations` lists the caller's organisations with their role. `GET /api/organizations/{id}` returns one of them with the member and active room counts, and Owners can rename it with `PUT` (`OrganizationRenamed` audit event). The legacy organisation keeps its name (`409 legacy_organization_read_only`).
+
+### Meeting rooms
+
+A new organisation has no rooms. Owners and Admins create and manage them; Members only search and book (`403 organization_permission_denied`).
+
+| Endpoint | Rules |
+| --- | --- |
+| `POST …/rooms` with `{ "name", "capacity" }` | Name 1–100 characters after trimming, capacity 1–500. Names are unique among the organisation's active rooms, ignoring case (`409 room_name_taken`); other organisations may use the same name. |
+| `PUT …/rooms/{id}` | The same rules. An archived room is restored before it is changed (`409 room_archived`). Its bookings keep pointing to it. |
+| `POST …/rooms/{id}/archive` | Rooms are never deleted. Archiving hides the room from the room list, the availability search and new bookings, and keeps every booking. Refused while the room has bookings that have not ended (`409 room_has_upcoming_bookings`), so none silently loses its room. Archiving twice changes nothing. |
+| `POST …/rooms/{id}/restore` | Makes the room bookable again, unless an active room has taken its name meanwhile (`409 room_name_taken`). |
+| `GET …/rooms?includeArchived=true` | Owners and Admins only. |
+
+Every change writes a `RoomCreated`, `RoomUpdated`, `RoomArchived` or `RoomRestored` audit event. A room of another organisation is `404 meeting_room_not_found`.
 
 ### The original endpoints
 
