@@ -1,6 +1,7 @@
 using MeetingRoomBooking.Api.Data;
 using MeetingRoomBooking.Api.Features.Authentication;
 using MeetingRoomBooking.Api.Features.Bookings;
+using MeetingRoomBooking.Api.Features.Organizations;
 using MeetingRoomBooking.Api.Features.Rooms;
 using MeetingRoomBooking.Api.Features.Users;
 using Microsoft.EntityFrameworkCore;
@@ -53,10 +54,13 @@ builder.Services.AddDbContext<BookingDbContext>(
 builder.Services.TryAddSingleton(TimeProvider.System);
 
 builder.Services.AddScoped<BookingService>();
+builder.Services.AddScoped<UserRegistrationService>();
+builder.Services.AddScoped<InvitationService>();
 
 // Microsoft Entra ID access tokens (Entra section in configuration). Only
-// GET /api/me requires one; the room and booking endpoints are unchanged
-// and still anonymous. Without Entra:ApiClientId, /api/me answers 503.
+// /api/me, registration and invitations require one; the room and booking
+// endpoints are unchanged and still anonymous. Without Entra:ApiClientId,
+// the signed-in endpoints answer 503.
 var entraOptions =
     builder.AddEntraAuthentication();
 
@@ -104,8 +108,13 @@ app.MapGet(
 app.MapRoomEndpoints();
 app.MapBookingEndpoints();
 app.MapCurrentUserEndpoints(entraOptions);
+app.MapInvitationEndpoints(entraOptions);
 
 await app.InitialiseDatabaseAsync();
+
+// Organizations:InitialLegacyOwnerUserId: the first Owner of the legacy
+// organisation, named by whoever configures the API (see README).
+await app.ApplyLegacyOwnerBootstrapAsync();
 
 app.Run();
 

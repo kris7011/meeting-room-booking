@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using MeetingRoomBooking.Api.Data;
 using MeetingRoomBooking.Api.Features.Authentication;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace MeetingRoomBooking.Api.Features.Users;
@@ -16,7 +15,21 @@ public sealed record CurrentUserResponse(
 /// <summary>The API's own user record for the identity, if one exists.</summary>
 public sealed record RegisteredUserResponse(
     Guid PublicId,
-    string DisplayName);
+    string DisplayName,
+    IReadOnlyList<OrganizationMembershipResponse> Organizations);
+
+/// <summary>An organisation the user is a member of, and their role there.</summary>
+public sealed record OrganizationMembershipResponse(
+    Guid PublicId,
+    string Name,
+    bool IsLegacy,
+    string Role);
+
+/// <summary>The result of POST /api/me/registration.</summary>
+/// <param name="Created">True only for the request that created the user.</param>
+public sealed record RegistrationResponse(
+    bool Created,
+    CurrentUserResponse CurrentUser);
 
 public static class CurrentUserEndpoints
 {
@@ -24,15 +37,29 @@ public static class CurrentUserEndpoints
         this IEndpointRouteBuilder endpoints,
         EntraAuthenticationOptions options)
     {
-        var endpoint =
-            options.IsConfigured
-                ? endpoints
-                    .MapGet("/api/me", GetAsync)
-                    .RequireAuthorization(EntraAuthentication.SignedInUserPolicy)
-                : endpoints.MapGet("/api/me", NotConfigured);
+        if (!options.IsConfigured)
+        {
+            endpoints.MapGet("/api/me", ApiProblems.AuthenticationNotConfigured)
+                .WithName("GetCurrentUser")
+                .WithTags("Users");
 
-        endpoint
+            endpoints.MapPost("/api/me/registration", ApiProblems.AuthenticationNotConfigured)
+                .WithName("RegisterCurrentUser")
+                .WithTags("Users");
+
+            return endpoints;
+        }
+
+        endpoints
+            .MapGet("/api/me", GetAsync)
+            .RequireAuthorization(EntraAuthentication.SignedInUserPolicy)
             .WithName("GetCurrentUser")
+            .WithTags("Users");
+
+        endpoints
+            .MapPost("/api/me/registration", RegisterAsync)
+            .RequireAuthorization(EntraAuthentication.SignedInUserPolicy)
+            .WithName("RegisterCurrentUser")
             .WithTags("Users");
 
         return endpoints;
@@ -40,104 +67,113 @@ public static class CurrentUserEndpoints
 
     /// <summary>
     /// Read-only: looks the identity up by the validated issuer and object ID
-    /// (the key of <c>UserIdentities</c>) and creates nothing. Linking
-    /// identities to users belongs with invitations and memberships.
+    /// (the key of <c>UserIdentities</c>) and creates or changes nothing.
+    /// <c>user</c> is null until the identity has been registered.
     /// </summary>
     private static async Task<IResult> GetAsync(
         ClaimsPrincipal principal,
         BookingDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var issuer =
-            Required(principal, EntraAuthentication.Claims.Issuer);
-
-        var objectId =
-            Required(principal, EntraAuthentication.Claims.ObjectId);
-
-        var tenantId =
-            Required(principal, EntraAuthentication.Claims.TenantId);
-
-        var username =
-            principal.FindFirstValue(EntraAuthentication.Claims.PreferredUsername);
-
-        var displayName =
-            principal.FindFirstValue(EntraAuthentication.Claims.Name)
-            ?? username
-            ?? objectId;
+        var identity =
+            SignedInIdentity.From(principal);
 
         var user =
-            await dbContext.UserIdentities
+            await dbContext
+                .RegisteredUser(identity)
                 .AsNoTracking()
-                .Where(
-                    identity =>
-                        identity.Provider == IdentityProvider.Entra &&
-                        identity.Issuer == issuer &&
-                        identity.Subject == objectId)
-                .Join(
-                    dbContext.Users,
-                    identity => identity.UserId,
-                    candidate => candidate.Id,
-                    (_, candidate) => candidate)
-                .Select(
-                    candidate =>
-                        new
-                        {
-                            candidate.PublicId,
-                            candidate.DisplayName,
-                            candidate.DisabledUtc
-                        })
                 .SingleOrDefaultAsync(cancellationToken);
 
-        if (user?.DisabledUtc is not null)
+        if (user?.IsDisabled == true)
         {
-            var problem =
-                new ProblemDetails
-                {
-                    Status = StatusCodes.Status403Forbidden,
-                    Title = "User disabled",
-                    Detail = "This user account has been disabled."
-                };
-
-            problem.Extensions["code"] = "user_disabled";
-
-            return Results.Problem(problem);
+            return ApiProblems.UserDisabled();
         }
 
         return Results.Ok(
-            new CurrentUserResponse(
-                displayName,
-                username,
-                tenantId,
-                user is null
-                    ? null
-                    : new RegisteredUserResponse(
-                        user.PublicId,
-                        user.DisplayName)));
+            await ToResponseAsync(identity, user, dbContext, cancellationToken));
     }
 
-    private static IResult NotConfigured()
-    {
-        var problem =
-            new ProblemDetails
-            {
-                Status = StatusCodes.Status503ServiceUnavailable,
-                Title = "Sign-in is not configured",
-                Detail = "The API has no Entra settings, so it cannot validate access tokens."
-            };
-
-        problem.Extensions["code"] = "authentication_not_configured";
-
-        return Results.Problem(problem);
-    }
-
-    // The policy guarantees tid and oid; iss is always present on a
-    // validated token.
-    private static string Required(
+    /// <summary>
+    /// Registers the signed-in identity: 201 when this request created the
+    /// user, 200 when it was already registered (same body, nothing created).
+    /// The identity comes from the token alone; the request has no body.
+    /// </summary>
+    private static async Task<IResult> RegisterAsync(
         ClaimsPrincipal principal,
-        string claimType)
+        UserRegistrationService registration,
+        BookingDbContext dbContext,
+        CancellationToken cancellationToken)
     {
-        return principal.FindFirstValue(claimType)
-            ?? throw new InvalidOperationException(
-                $"The validated token has no {claimType} claim.");
+        var identity =
+            SignedInIdentity.From(principal);
+
+        var result =
+            await registration.RegisterAsync(identity, cancellationToken);
+
+        if (result.Outcome == RegistrationOutcome.Disabled)
+        {
+            return ApiProblems.UserDisabled();
+        }
+
+        var response =
+            new RegistrationResponse(
+                result.Outcome == RegistrationOutcome.Created,
+                await ToResponseAsync(identity, result.User, dbContext, cancellationToken));
+
+        return result.Outcome == RegistrationOutcome.Created
+            ? Results.Created("/api/me", response)
+            : Results.Ok(response);
+    }
+
+    private static async Task<CurrentUserResponse> ToResponseAsync(
+        SignedInIdentity identity,
+        User? user,
+        BookingDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        RegisteredUserResponse? registered = null;
+
+        if (user is not null)
+        {
+            var memberships =
+                await dbContext.Memberships
+                    .AsNoTracking()
+                    .Where(membership => membership.UserId == user.Id)
+                    .Join(
+                        dbContext.Organizations.Where(
+                            organization => organization.DeletedUtc == null),
+                        membership => membership.OrganizationId,
+                        organization => organization.Id,
+                        (membership, organization) =>
+                            new
+                            {
+                                organization.PublicId,
+                                organization.Name,
+                                organization.IsLegacy,
+                                membership.Role
+                            })
+                    .OrderBy(organization => organization.Name)
+                    .ToArrayAsync(cancellationToken);
+
+            registered =
+                new RegisteredUserResponse(
+                    user.PublicId,
+                    user.DisplayName,
+                    [
+                        .. memberships.Select(
+                            membership =>
+                                new OrganizationMembershipResponse(
+                                    membership.PublicId,
+                                    membership.Name,
+                                    membership.IsLegacy,
+                                    membership.Role.ToString()))
+                    ]);
+        }
+
+        return new CurrentUserResponse(
+            identity.DisplayName,
+            identity.Username,
+            identity.TenantId,
+            registered);
     }
 }

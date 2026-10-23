@@ -60,4 +60,50 @@ public sealed class UserIdentity
     public DateTimeOffset CreatedUtc { get; private set; }
 
     public DateTimeOffset? LastUsedUtc { get; private set; }
+
+    /// <summary>
+    /// A Microsoft Entra ID identity for <paramref name="userId"/>, keyed by
+    /// the validated issuer and object ID.
+    /// </summary>
+    public static UserIdentity CreateEntra(
+        int userId,
+        string issuer,
+        string objectId,
+        string? verifiedEmail,
+        DateTimeOffset nowUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(issuer);
+        ArgumentException.ThrowIfNullOrWhiteSpace(objectId);
+
+        if (issuer.Length > MaximumIssuerLength ||
+            objectId.Length > MaximumSubjectLength)
+        {
+            throw new ArgumentException(
+                "The issuer or object ID is longer than an identity can store.");
+        }
+
+        return new UserIdentity
+        {
+            UserId = userId,
+            Provider = IdentityProvider.Entra,
+            Issuer = issuer,
+            Subject = objectId,
+            VerifiedEmail = verifiedEmail,
+            CreatedUtc = nowUtc.ToUniversalTime(),
+            LastUsedUtc = nowUtc.ToUniversalTime()
+        };
+    }
+
+    /// <summary>
+    /// Records a sign-in. The verified e-mail follows the issuer: an address
+    /// the latest token no longer vouches for is dropped.
+    /// </summary>
+    public void RecordUse(
+        string? verifiedEmail,
+        DateTimeOffset nowUtc)
+    {
+        VerifiedEmail = verifiedEmail;
+        LastUsedUtc = nowUtc.ToUniversalTime();
+    }
 }
