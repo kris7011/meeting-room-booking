@@ -33,6 +33,12 @@ jobs:
           --configuration Release
           --no-restore
 
+      - name: Restore portable database tool
+        run: dotnet restore ./tools/RoomBooking.DatabaseTool/RoomBooking.DatabaseTool.csproj
+
+      - name: Build database portability tool
+        run: dotnet build ./tools/RoomBooking.DatabaseTool/RoomBooking.DatabaseTool.csproj --configuration Release --no-restore
+
       - name: Run backend tests
         run: >
           dotnet test
