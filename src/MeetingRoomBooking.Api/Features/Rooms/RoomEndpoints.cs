@@ -67,6 +67,31 @@ public static class RoomEndpoints
                 GetOrganizationAvailableAsync)
             .WithName("GetOrganizationAvailableRooms");
 
+        // Room administration: Owners and Admins.
+        group.MapPost(
+                "",
+                CreateRoomAsync)
+            .RequireOwnerOrAdmin()
+            .WithName("CreateOrganizationRoom");
+
+        group.MapPut(
+                "/{roomId:int}",
+                UpdateRoomAsync)
+            .RequireOwnerOrAdmin()
+            .WithName("UpdateOrganizationRoom");
+
+        group.MapPost(
+                "/{roomId:int}/archive",
+                ArchiveRoomAsync)
+            .RequireOwnerOrAdmin()
+            .WithName("ArchiveOrganizationRoom");
+
+        group.MapPost(
+                "/{roomId:int}/restore",
+                RestoreRoomAsync)
+            .RequireOwnerOrAdmin()
+            .WithName("RestoreOrganizationRoom");
+
         return organization;
     }
 
@@ -183,6 +208,93 @@ public static class RoomEndpoints
 
         return Results.Ok(rooms);
     }
+
+    private static async Task<IResult> CreateRoomAsync(
+        SaveRoomRequest request,
+        RoomAdministrationService rooms,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken)
+    {
+        var caller = organization.Required();
+        var result = await rooms.CreateAsync(caller, request, cancellationToken);
+
+        return result.Room is { } room
+            ? Results.Created(
+                $"/api/organizations/{caller.OrganizationPublicId}/rooms/{room.Id}",
+                OrganizationRoomResponse.FromRoom(room))
+            : ToProblem(result, roomId: 0);
+    }
+
+    private static async Task<IResult> UpdateRoomAsync(
+        int roomId,
+        SaveRoomRequest request,
+        RoomAdministrationService rooms,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken) =>
+        ToResponse(
+            await rooms.UpdateAsync(organization.Required(), roomId, request, cancellationToken),
+            roomId);
+
+    private static async Task<IResult> ArchiveRoomAsync(
+        int roomId,
+        RoomAdministrationService rooms,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken) =>
+        ToResponse(
+            await rooms.ArchiveAsync(organization.Required(), roomId, cancellationToken),
+            roomId);
+
+    private static async Task<IResult> RestoreRoomAsync(
+        int roomId,
+        RoomAdministrationService rooms,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken) =>
+        ToResponse(
+            await rooms.RestoreAsync(organization.Required(), roomId, cancellationToken),
+            roomId);
+
+    private static IResult ToResponse(
+        RoomResult result,
+        int roomId) =>
+        result.Room is { } room
+            ? Results.Ok(OrganizationRoomResponse.FromRoom(room))
+            : ToProblem(result, roomId);
+
+    private static IResult ToProblem(
+        RoomResult result,
+        int roomId) =>
+        result.Failure switch
+        {
+            RoomFailure.InvalidRequest =>
+                Results.ValidationProblem(result.Errors ?? new Dictionary<string, string[]>()),
+
+            RoomFailure.RoomNotFound =>
+                ApiProblems.MeetingRoomNotFound(roomId),
+
+            RoomFailure.NameTaken =>
+                ApiProblems.Create(
+                    StatusCodes.Status409Conflict,
+                    "room_name_taken",
+                    "Room name already in use",
+                    "Another room of this organisation already has this name."),
+
+            RoomFailure.RoomArchived =>
+                ApiProblems.Create(
+                    StatusCodes.Status409Conflict,
+                    "room_archived",
+                    "Room is archived",
+                    "Restore the room before changing it."),
+
+            RoomFailure.HasUpcomingBookings =>
+                ApiProblems.Create(
+                    StatusCodes.Status409Conflict,
+                    "room_has_upcoming_bookings",
+                    "Room has upcoming bookings",
+                    $"The room has {result.UpcomingBookings} booking(s) that have not ended. Move or delete them before archiving the room."),
+
+            _ =>
+                throw new ArgumentOutOfRangeException(nameof(result), result.Failure, "Unknown room failure.")
+        };
 
     /// <param name="includeArchived">Owners and Admins only (403 for Members).</param>
     private static async Task<IResult> GetOrganizationRoomsAsync(

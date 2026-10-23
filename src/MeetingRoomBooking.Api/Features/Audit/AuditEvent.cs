@@ -17,7 +17,11 @@ public enum AuditEventType
     InvitationCreated,
     InvitationRevoked,
     InvitationAccepted,
-    UserRegistered
+    UserRegistered,
+    RoomCreated,
+    RoomUpdated,
+    RoomArchived,
+    RoomRestored
 }
 
 /// <summary>
