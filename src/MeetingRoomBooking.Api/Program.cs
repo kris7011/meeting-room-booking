@@ -56,13 +56,21 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddScoped<UserRegistrationService>();
 builder.Services.AddScoped<InvitationService>();
+builder.Services.AddScoped<OrganizationAccessService>();
+builder.Services.AddScoped<CurrentOrganization>();
 
-// Microsoft Entra ID access tokens (Entra section in configuration). Only
-// /api/me, registration and invitations require one; the room and booking
-// endpoints are unchanged and still anonymous. Without Entra:ApiClientId,
-// the signed-in endpoints answer 503.
+// Microsoft Entra ID access tokens (Entra section in configuration). Every
+// organisation endpoint requires one, plus a membership of the organisation.
+// Without Entra:ApiClientId, the signed-in endpoints answer 503.
 var entraOptions =
     builder.AddEntraAuthentication();
+
+// The original /api/rooms and /api/bookings endpoints: members of the legacy
+// organisation only, unless LegacyApi:AllowAnonymous turns on the anonymous
+// demo mode (Development and Testing only; the API refuses to start with it
+// anywhere else).
+var legacyApiOptions =
+    LegacyApiOptions.Read(builder);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -105,10 +113,20 @@ app.MapGet(
     .WithName("GetHealth")
     .WithTags("System");
 
-app.MapRoomEndpoints();
-app.MapBookingEndpoints();
+app.MapLegacyGroup("/api/rooms", legacyApiOptions, entraOptions)
+    .MapRoomEndpoints();
+
+app.MapLegacyGroup("/api/bookings", legacyApiOptions, entraOptions)
+    .MapBookingEndpoints();
+
 app.MapCurrentUserEndpoints(entraOptions);
 app.MapInvitationEndpoints(entraOptions);
+
+// /api/organizations/{organizationId}/...: a registered, enabled member of
+// that organisation, checked before any of these endpoints runs.
+app.MapOrganizationGroup(entraOptions)
+    .MapOrganizationRoomEndpoints()
+    .MapOrganizationBookingEndpoints();
 
 await app.InitialiseDatabaseAsync();
 

@@ -32,6 +32,45 @@ public sealed record BookingResponse(
     }
 }
 
+/// <summary>
+/// A booking as the organisation endpoints return it: the legacy shape plus
+/// what the caller may do with it, so a client can show or hide its edit
+/// and delete actions. The API still checks every change itself.
+/// </summary>
+/// <param name="CreatedByCurrentUser">The caller created it.</param>
+/// <param name="CanModify">The caller may change and delete it (see <see cref="BookingActor.MayModify"/>).</param>
+public sealed record OrganizationBookingResponse(
+    int Id,
+    int RoomId,
+    string RoomName,
+    string Title,
+    string BookedBy,
+    DateTimeOffset StartUtc,
+    DateTimeOffset EndUtc,
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset? UpdatedUtc,
+    bool CreatedByCurrentUser,
+    bool CanModify)
+{
+    public static OrganizationBookingResponse FromBooking(
+        Booking booking,
+        BookingActor actor)
+    {
+        return new OrganizationBookingResponse(
+            Id: booking.Id,
+            RoomId: booking.RoomId,
+            RoomName: booking.Room.Name,
+            Title: booking.Title,
+            BookedBy: booking.BookedBy,
+            StartUtc: booking.StartUtc,
+            EndUtc: booking.EndUtc,
+            CreatedUtc: booking.CreatedUtc,
+            UpdatedUtc: booking.UpdatedUtc,
+            CreatedByCurrentUser: booking.CreatedByUserId == actor.UserId,
+            CanModify: actor.MayModify(booking));
+    }
+}
+
 internal static class BookingRequestValidator
 {
     internal const string StartNotInFutureMessage =
