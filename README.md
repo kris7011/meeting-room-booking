@@ -337,6 +337,17 @@ Rules that the service layer must enforce when the endpoints arrive, because the
 - An Owner whose user account is disabled still counts as an Owner for the database rule; the service decides how to treat disabled Owners.
 - Audit `Details` must never contain access tokens, invitation tokens or token hashes.
 
+## Local operation and cloud exit (phase 4A)
+
+To start the signed-in .NET API locally, create a verified manual SQLite
+backup, or safely restore a cloud snapshot into a **new database file**, use
+the PowerShell scripts in `scripts/` and the instructions in
+[Local portability and recovery](docs/local-portability.md).
+
+Existing database files are never overwritten by the restore tool. Microsoft
+login still requires internet access to Entra. Selecting the server at runtime
+inside an installed Android release is a separate mobile feature.
+
 ## Database backup and restore
 
 > **Before the first start after updating:** a normal start of the API (`dotnet run`, or starting it from an IDE) **automatically migrates the existing database** it is configured to use, for example `src/MeetingRoomBooking.Api/meeting-room-booking.db`. The first start after the organisation changes rebuilds the `MeetingRooms` and `Bookings` tables. Make your own separate backup first: stop the API and copy the database file, together with any `-wal` and `-shm` files, to a folder outside the repository. The automatic backup described below is an extra safeguard, not a replacement for your own copy.
