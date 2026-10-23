@@ -150,6 +150,11 @@ GET    /health
 
 GET    /api/rooms
 
+GET    /api/me                                         (Microsoft Entra access token; read-only)
+POST   /api/me/registration                            (Microsoft Entra access token)
+POST   /api/organizations/{organizationId}/invitations (Owner or Admin of the organisation)
+POST   /api/invitations/accept                         (the invited, registered user)
+
 GET    /api/bookings
 GET    /api/bookings/{id}
 POST   /api/bookings
@@ -289,7 +294,7 @@ Every meeting room belongs to an organisation, and a booking always belongs to i
 
 ### Identities, memberships, invitations and audit events
 
-The data model for self-service organisations is in place; no endpoint uses it yet, and nothing in it requires sign-in.
+The data model for self-service organisations is in place. Registration creates users and identities, configuration names the first Owner of the legacy organisation, and invitations add everyone else; see [Registration and organisation access](#registration-and-organisation-access).
 
 | Table | Key and relations | Enforced by the database |
 | --- | --- | --- |
@@ -548,6 +553,124 @@ In the Development environment, the API allows the origins listed in `appsetting
 
 Outside Development no CORS policy is registered, even if `Cors:AllowedOrigins` is set, so the API sends no CORS headers and browsers keep blocking cross-origin requests. Native mobile apps are not affected by CORS.
 
+## Sign-in with Microsoft Entra ID
+
+The API validates Microsoft Entra ID access tokens itself and decides from them who the caller is. A client never tells the API who the user is: a name, e-mail or user ID sent in a request body is never trusted for identity.
+
+Two kinds of Microsoft account can sign in:
+
+- **Work and school accounts** (Microsoft Entra ID) of any tenant, or of the tenants in `Entra:AllowedTenantIds`.
+- **Personal Microsoft accounts** (Outlook.com, Hotmail, Live.com), unless `Entra:AllowPersonalAccounts` is `false`. Their tokens come from Microsoft's consumer tenant `9188040d-6c67-4c5b-b112-36a304b66dad` and are validated exactly like work and school tokens, with that tenant as `tid`.
+
+What is in place:
+
+- `GET /api/me` requires a valid access token and returns the caller as the API sees them: display name, `preferred_username`, tenant ID and, once the identity is registered, the API's own user (`publicId`, display name, and the organisations the user belongs to with their role). It is read-only and creates no users or identities.
+- `POST /api/me/registration` registers the signed-in identity as a Room Booking user; see [Registration and organisation access](#registration-and-organisation-access).
+- The room and booking endpoints are unchanged and still need no sign-in. A token sent to them, valid or not, is ignored.
+- Without `Entra:ApiClientId` the API starts as before, and `GET /api/me` answers `503` with `code: "authentication_not_configured"`.
+
+### What a token must satisfy
+
+| Check | Rule | Failure |
+| --- | --- | --- |
+| Signature | RS256, signed with a key from the Microsoft identity platform metadata: `https://login.microsoftonline.com/common/v2.0`, or `…/organizations/v2.0` when personal accounts are off. Only `common` also publishes the keys personal-account tokens are signed with. Unsigned (`alg: none`) and HMAC tokens are rejected. | 401 |
+| Signing key issuer | A key that the metadata publishes for a specific issuer may only sign tokens of that issuer (`EnableAadSigningKeyIssuerValidation`). The personal-account keys name the consumer tenant's issuer, so they never validate a work or school token. | 401 |
+| Issuer | Exactly `https://login.microsoftonline.com/{tid}/v2.0`, where `{tid}` is the token's own `tid` claim, a GUID; for a personal account `https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0`. Endpoint aliases (`common`, `organizations`, `consumers`) are never an issuer. v1.0 tokens (`https://sts.windows.net/{tid}/`) are rejected, so one person never gets two issuers. | 401 |
+| Tenant | The consumer tenant when `Entra:AllowPersonalAccounts` is `true` (the default). Any other tenant, or only those in `Entra:AllowedTenantIds` when it is set. | 401 |
+| Audience | The API's client ID or its Application ID URI (`api://{client ID}` by default). | 401 |
+| Lifetime | `exp` is required; up to 2 minutes of clock skew. | 401 |
+| Delegated scope | `scp` contains `Entra:RequiredScope` (`access_as_user`). App-only tokens (roles, no `scp`) never pass as a user. | 403 |
+| User | `tid` and `oid` are present. A linked user whose account is disabled gets `403` with `code: "user_disabled"`. | 403 |
+
+The identity key is the validated `iss` together with `oid`, the same key as the unique index on `UserIdentities (Issuer, Subject)`. `sub` is not used, because it differs between the app's ID token and the API's access token, and the e-mail address is never a key. A personal account and a work account are therefore always different identities, even with the same e-mail address, because their issuers differ.
+
+### Configuration
+
+```json
+"Entra": {
+  "Instance": "https://login.microsoftonline.com",
+  "ApiClientId": "",
+  "RequiredScope": "access_as_user",
+  "AllowedTenantIds": [],
+  "AllowPersonalAccounts": true
+}
+```
+
+`AllowedTenantIds` limits work and school accounts only; personal accounts are switched on and off with `AllowPersonalAccounts` alone.
+
+None of these values is a secret: the API validates tokens and never requests one, so it has no client secret. Set the API's client ID without editing the file, for example:
+
+```powershell
+$env:Entra__ApiClientId = "<Application (client) ID of the API registration>"
+dotnet run --project .\src\MeetingRoomBooking.Api\MeetingRoomBooking.Api.csproj --launch-profile http
+```
+
+The API stops at start-up if a value is set but invalid (a client ID or tenant ID that is not a GUID, the consumer tenant in `AllowedTenantIds`, an instance that is not HTTPS, or more than one scope).
+
+### Manual steps in the Microsoft Entra admin center
+
+The API needs its own app registration, separate from the mobile app's:
+
+1. **App registrations → New registration**, for example "Room Booking API". Supported account types: *Accounts in any organizational directory and personal Microsoft accounts* (`"signInAudience": "AzureADandPersonalMicrosoftAccount"`). Without personal accounts: *Accounts in any organizational directory*, or *this directory only* together with `Entra:AllowedTenantIds`, and `Entra:AllowPersonalAccounts` set to `false`.
+2. **Manifest**: set `"requestedAccessTokenVersion": 2` (in the older manifest format `"accessTokenAcceptedVersion": 2`). Otherwise Entra issues v1.0 tokens, which this API rejects. Entra requires version 2 before personal accounts can be switched on, so for an existing registration set this first, then change `signInAudience` in the manifest.
+3. **Expose an API**: set the Application ID URI to `api://<API client ID>` and add the scope `access_as_user` (who can consent: admins and users).
+4. **Token configuration → Add optional claim → Access**: `email` and `xms_edov` (accept the prompt to add the Microsoft Graph `email` permission). Only needed for accepting invitations; see [Verified e-mail addresses](#verified-e-mail-addresses).
+5. In the **mobile app's** registration: **API permissions → Add a permission → My APIs → Room Booking API → Delegated → access_as_user**, and the same supported account types as the API. Grant admin consent if the tenant does not allow user consent.
+6. For users of other tenants: an administrator of each tenant must consent to the mobile app (and with it the API) before its users can sign in. Personal accounts consent for themselves on their first sign-in.
+
+### Not done yet
+
+- Linking a second identity (for example a work account and a personal account) to the same user.
+- Creating organisations, revoking invitations without replacing them, and changing or removing memberships through the API.
+- Organisation-based access control on rooms and bookings: the existing endpoints stay anonymous and limited to the legacy organisation until they check memberships.
+- Taking `BookedBy` from the signed-in user instead of the request body.
+- CORS allows only `Accept` and `Content-Type`, so browser clients cannot send `Authorization` yet; native apps are not affected.
+
+## Registration and organisation access
+
+### Registration
+
+`POST /api/me/registration` (no request body) creates the API's own user for the signed-in identity:
+
+- The identity key is the validated `iss` together with `oid` (`UserIdentities (Issuer, Subject)`). Nothing in the request body is read, and an e-mail address is never a key: two identities with the same address become two users.
+- `201 Created` with `created: true` for the request that created the user; `200 OK` with `created: false` and the same user every time after that. Nothing is created twice.
+- Safe under concurrent requests: the lookup and the inserts run in one `BEGIN IMMEDIATE` transaction, so two first sign-ins of the same person are serialised. If another writer still inserts the identity first, the unique-index violation is answered with the user that writer created.
+- A disabled user gets `403` with `code: "user_disabled"`, and nothing is changed.
+- Registration grants nothing: a new user is a member of no organisation, the legacy organisation included. It writes a `UserRegistered` audit event and logs the new user's public ID (never a token or an e-mail address).
+- The response body is `{ created, currentUser }`, where `currentUser` is what `GET /api/me` returns.
+
+`GET /api/me` stays read-only. The mobile app calls it first and registers only when `user` is `null`.
+
+### Verified e-mail addresses
+
+The API treats the `email` claim as verified only when the token also carries `xms_edov: true`. Microsoft documents `email` on its own as unverified and mutable, so without `xms_edov` the identity has no verified e-mail. `preferred_username` is never used as an e-mail. A verified e-mail is only ever compared with the address of an invitation, together with the invitation's secret token; it never grants access on its own.
+
+To get these claims, add the **optional claims** `email` and `xms_edov` to the **access token** of the API's app registration (step 4 under the admin-center steps above). Without them, registration still works, but invitations cannot be accepted (`verified_email_required`).
+
+### The first Owner of the legacy organisation
+
+The legacy organisation was created by a migration and has no creator. Someone who controls the API's configuration therefore names its first Owner:
+
+1. The person signs in with the app once, which registers them. The API logs `Registered user {UserPublicId} …`, and the app shows the same ID as "Bruger-ID".
+2. Set `Organizations:InitialLegacyOwnerUserId` to that public ID and restart the API:
+
+   ```powershell
+   $env:Organizations__InitialLegacyOwnerUserId = "<user public ID>"
+   ```
+
+3. At start-up the API makes that user the Owner of the legacy organisation, writes a `MembershipAdded` audit event with no actor (the system), and logs it.
+
+The setting takes effect only while the legacy organisation has no Owner. Once it has one, the setting changes nothing: a different user is logged and ignored, never added. Further members join by invitation. A user who has not registered yet, or is disabled, is logged and skipped. A value that is not a GUID stops the API at start-up. The API generates the ID at registration, so nobody can choose or claim it from a client, and no e-mail address is involved.
+
+### Invitations
+
+| Endpoint | Who | Rules |
+| --- | --- | --- |
+| `POST /api/organizations/{organizationId}/invitations` with `{ "email", "role" }` | A registered, enabled Owner or Admin of the organisation | Owners invite `Admin` or `Member`, Admins only `Member`; `Owner` is never invited (`400`). Not a member: `404 organization_not_found`, so an organisation's existence is not revealed. A member without the right: `403 organization_permission_denied`. Inviting the same address again revokes the earlier invitation. Returns `201` with the token, shown only here; the database keeps its SHA-256 hash. Valid for 7 days. |
+| `POST /api/invitations/accept` with `{ "token" }` | A registered, enabled user | The token must match an open, unexpired invitation (`404 invitation_not_found`, `410 invitation_expired`, `410 invitation_no_longer_valid`). The caller's token must carry a verified e-mail (`403 verified_email_required`) equal to the invited address (`403 invitation_email_mismatch`), and the inviter must still be allowed to invite that role. Already a member: `409 already_member`. Accepting the same invitation again returns the same membership. |
+
+Neither the e-mail address nor the token is enough alone: the token proves the link reached someone, and the verified e-mail proves it is the person it was sent to. Both endpoints answer `403 user_not_registered` to a signed-in identity that has not registered. Every change writes audit events without tokens or token hashes.
+
 ## Build and test
 
 ### Backend
@@ -575,7 +698,7 @@ dotnet test `
     --no-build
 ```
 
-The backend suite currently contains 26 integration tests.
+The backend suite currently contains 217 integration tests.
 
 ### Frontend
 
@@ -644,6 +767,9 @@ Backend scenarios include:
 - Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails or when a non-empty database has no migration history, and a real restore of a backup file.
 - Organisation scope: the existing endpoints never show or change data of another organisation, and their JSON is unchanged.
 - Identities, memberships, invitations and audit events: unique keys, foreign keys, check constraints, the last-Owner triggers, memberships across several organisations, and a migration from the schema of phase 1, PR 1 that keeps every room, booking and overlap trigger.
+- Registration: first registration, repeated registration, 12 parallel first registrations (exactly one user), an existing and a disabled user, invalid and app-only tokens and a missing scope (nothing created), `GET /api/me` creating nothing, the same `oid` in another tenant or as a personal account and the same e-mail on two identities (always separate users), and when an e-mail counts as verified.
+- Organisation access: the configured first legacy Owner (at start-up, never replacing an existing Owner, skipping unknown and disabled users, refusing a value that is not a user ID); invitations only by Owners and Admins (Admins only Members, never Owner); no access without membership; acceptance only with the token and the matching verified e-mail; expiry, revocation by re-inviting, an inviter who lost the right, disabled users, existing members and parallel accepts; no tokens in the database or the audit log.
+- Sign-in: `GET /api/me` with tokens signed by a test key that exists only in the test process (no network, no real tenant): a valid token, both audiences, a linked and a disabled user, the same `oid` in another tenant, and rejection of a missing token, a wrong audience, issuer or tenant, a v1.0 issuer, an expired, unsigned, HMAC-signed or foreign-key-signed token, a signing key published for another tenant, a missing scope and an app-only token. The room endpoints stay anonymous, and invalid `Entra` settings stop the API at start-up.
 
 Migration tests build their databases with raw SQL in their own temp folders. A guard stops any test from opening a database outside the system temp folder, and the test host receives its connection string explicitly, so tests can never touch the development database.
 
@@ -756,7 +882,7 @@ At the time of completion, the project passes:
 
 ```text
 Backend:
-105 passed
+217 passed
 0 failed
 
 Frontend:
@@ -770,8 +896,7 @@ The Angular production build and the .NET Release build both complete successful
 
 With more development time, the following could be added:
 
-- Authentication and authorisation.
-- Identification of the currently signed in user.
+- Organisation-based authorisation on the room and booking endpoints (sign-in and token validation are in place, see above).
 - Calendar style schedule view.
 - Filtering by room or date.
 - Recurring bookings.

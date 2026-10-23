@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace MeetingRoomBooking.Api.Features.Audit;
 
 /// <summary>
@@ -14,7 +16,8 @@ public enum AuditEventType
     MembershipRemoved,
     InvitationCreated,
     InvitationRevoked,
-    InvitationAccepted
+    InvitationAccepted,
+    UserRegistered
 }
 
 /// <summary>
@@ -50,4 +53,33 @@ public sealed class AuditEvent
 
     /// <summary>Optional JSON with non-secret details, such as old and new role.</summary>
     public string? Details { get; private set; }
+
+    /// <param name="details">
+    /// Non-secret details only: never an access token, an invitation token
+    /// or a token hash.
+    /// </param>
+    public static AuditEvent Record(
+        AuditEventType type,
+        int? organizationId,
+        int? actorUserId,
+        int? targetUserId,
+        DateTimeOffset nowUtc,
+        object? details = null)
+    {
+        return new AuditEvent
+        {
+            Type = type,
+            OrganizationId = organizationId,
+            ActorUserId = actorUserId,
+            TargetUserId = targetUserId,
+            OccurredUtc = nowUtc.ToUniversalTime(),
+            Details =
+                details is null
+                    ? null
+                    : JsonSerializer.Serialize(details, DetailsJsonOptions)
+        };
+    }
+
+    private static readonly JsonSerializerOptions DetailsJsonOptions =
+        new(JsonSerializerDefaults.Web);
 }

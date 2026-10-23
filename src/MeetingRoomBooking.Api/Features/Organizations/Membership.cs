@@ -33,4 +33,33 @@ public sealed class Membership
     public int? CreatedByUserId { get; private set; }
 
     public DateTimeOffset? UpdatedUtc { get; private set; }
+
+    /// <param name="createdByUserId">The member who granted it; null for the system (configuration).</param>
+    public static Membership Create(
+        int organizationId,
+        int userId,
+        MembershipRole role,
+        int? createdByUserId,
+        DateTimeOffset nowUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(organizationId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(userId);
+
+        return new Membership
+        {
+            OrganizationId = organizationId,
+            UserId = userId,
+            Role = role,
+            CreatedByUserId = createdByUserId,
+            CreatedUtc = nowUtc.ToUniversalTime()
+        };
+    }
+
+    public void ChangeRole(
+        MembershipRole role,
+        DateTimeOffset nowUtc)
+    {
+        Role = role;
+        UpdatedUtc = nowUtc.ToUniversalTime();
+    }
 }
