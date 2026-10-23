@@ -165,6 +165,11 @@ POST   /api/organizations/{organizationId}/rooms                 (Owner/Admin)
 PUT    /api/organizations/{organizationId}/rooms/{id}            (Owner/Admin)
 POST   /api/organizations/{organizationId}/rooms/{id}/archive    (Owner/Admin)
 POST   /api/organizations/{organizationId}/rooms/{id}/restore    (Owner/Admin)
+GET    /api/organizations/{organizationId}/members               (Owner/Admin)
+PUT    /api/organizations/{organizationId}/members/{userId}/role (Owner)
+DELETE /api/organizations/{organizationId}/members/{userId}      (Owner, or the member leaving)
+GET    /api/organizations/{organizationId}/invitations           (Owner/Admin: open invitations)
+DELETE /api/organizations/{organizationId}/invitations/{id}      (Owner; Admin for Member invitations)
 GET    /api/organizations/{organizationId}/bookings              (?fromUtc&toUtc)
 GET    /api/organizations/{organizationId}/bookings/{id}
 POST   /api/organizations/{organizationId}/bookings
@@ -640,7 +645,6 @@ The API needs its own app registration, separate from the mobile app's:
 ### Not done yet
 
 - Linking a second identity (for example a work account and a personal account) to the same user.
-- Revoking invitations without replacing them, and changing or removing memberships through the API.
 - CORS allows only `Accept` and `Content-Type`, so browser clients cannot send `Authorization` yet; native apps are not affected.
 
 ## Organisation access control
@@ -758,7 +762,24 @@ The setting takes effect only while the legacy organisation has no Owner. Once i
 | `POST /api/organizations/{organizationId}/invitations` with `{ "email", "role" }` | A registered, enabled Owner or Admin of the organisation | Owners invite `Admin` or `Member`, Admins only `Member`; `Owner` is never invited (`400`). Not a member: `404 organization_not_found`, so an organisation's existence is not revealed. A member without the right: `403 organization_permission_denied`. Inviting the same address again revokes the earlier invitation. Returns `201` with the token, shown only here; the database keeps its SHA-256 hash. Valid for 7 days. |
 | `POST /api/invitations/accept` with `{ "token" }` | A registered, enabled user | The token must match an open, unexpired invitation (`404 invitation_not_found`, `410 invitation_expired`, `410 invitation_no_longer_valid`). The caller's token must carry a verified e-mail (`403 verified_email_required`) equal to the invited address (`403 invitation_email_mismatch`), and the inviter must still be allowed to invite that role. Already a member: `409 already_member`. Accepting the same invitation again returns the same membership. |
 
+| `GET /api/organizations/{organizationId}/invitations` | Owners and Admins | Open invitations (not accepted or revoked), expired ones included with `isExpired: true`, with who sent them and `canRevoke`. Never the token or its hash. |
+| `DELETE /api/organizations/{organizationId}/invitations/{id}` | Owners; Admins only for `Member` invitations | Revokes an open invitation, so its link stops working (`410 invitation_no_longer_valid` on accepting). Not open, or another organisation's: `404 invitation_not_found`. |
+
 Neither the e-mail address nor the token is enough alone: the token proves the link reached someone, and the verified e-mail proves it is the person it was sent to. Both endpoints answer `403 user_not_registered` to a signed-in identity that has not registered. Every change writes audit events without tokens or token hashes.
+
+### Members and roles
+
+| Role | Organisation administration |
+| --- | --- |
+| Owner | Everything: rooms, invitations (Admin and Member), member list, role changes (Owner included), removing members, renaming the organisation |
+| Admin | Rooms, the member list, inviting Members and revoking Member invitations. Never changes roles, so an Admin can never make anyone, themselves included, an Owner |
+| Member | Searching and booking. Can leave the organisation |
+
+- `GET …/members` returns `userPublicId`, `displayName`, `role`, `joinedUtc` and `isCurrentUser`, Owners first.
+- `PUT …/members/{userId}/role` with `{ "role": "Owner" | "Admin" | "Member" }`, Owners only. Ownership is handed over by making someone else an Owner, never by invitation.
+- `DELETE …/members/{userId}`: Owners remove anyone; any member may remove themselves (leave). Their bookings stay. Invitations they sent stop working once they may no longer invite.
+- The last Owner can be neither demoted, removed nor leave (`409 last_owner`). The service checks it, and the database triggers `TR_Memberships_LastOwner_*` refuse it as well. Both changes run in a `BEGIN IMMEDIATE` transaction that reads the caller's role again, so two Owners removing each other at the same time leave one Owner.
+- A user who is not a member is `404 member_not_found`. Every change writes a `MembershipRoleChanged` or `MembershipRemoved` audit event (`reason: removed` or `left`).
 
 ## Build and test
 
