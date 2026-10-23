@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MeetingRoomBooking.Api.Data;
+using MeetingRoomBooking.Api.Features.Organizations;
 using Microsoft.EntityFrameworkCore;
 
 namespace MeetingRoomBooking.Api.Features.Bookings;
@@ -13,7 +14,12 @@ public enum BookingMutationFailure
     /// <summary>
     /// The (changed) period does not start after the server's current time.
     /// </summary>
-    StartNotInFuture
+    StartNotInFuture,
+    /// <summary>
+    /// The booking exists in the organisation, but the caller may not change
+    /// or delete it (a Member and someone else's booking).
+    /// </summary>
+    PermissionDenied
 }
 
 public sealed record BookingMutationResult(
@@ -38,26 +44,76 @@ public sealed record BookingMutationResult(
 }
 
 /// <summary>
-/// Bookings behind the original, unauthenticated /api/bookings endpoints.
-/// They only ever see and change the legacy organisation, so data of
-/// organisations created later cannot be reached without signing in.
+/// The signed-in member who makes a booking change, from their membership.
+/// Null for the legacy endpoints in anonymous demo mode.
 /// </summary>
+public sealed record BookingActor(
+    int UserId,
+    MembershipRole Role)
+{
+    public static BookingActor From(
+        OrganizationCaller caller) =>
+        new(caller.UserId, caller.Role);
+
+    /// <summary>
+    /// Owners and Admins may change and delete every booking of their
+    /// organisation; Members only bookings they created themselves. Bookings
+    /// from before sign-in have no creator, so only Owners and Admins can
+    /// change them.
+    /// </summary>
+    public bool MayModify(
+        Booking booking) =>
+        Role is MembershipRole.Owner or MembershipRole.Admin
+        || booking.CreatedByUserId == UserId;
+}
+
+/// <summary>
+/// Bookings of one organisation. Every query and change is limited to the
+/// organisation it is given, so a booking or room ID from another
+/// organisation is simply "not found".
+/// </summary>
+/// <remarks>
+/// Changes run in a <c>BEGIN IMMEDIATE</c> transaction, so the checks (room
+/// still active, no overlap) and the write cannot be interleaved with
+/// another writer. The SQLite overlap triggers stay the final word.
+/// </remarks>
 public sealed class BookingService(
     BookingDbContext dbContext,
     TimeProvider timeProvider)
 {
-    private IQueryable<Booking> LegacyBookings =>
+    private IQueryable<Booking> BookingsOf(
+        int organizationId) =>
         dbContext.Bookings
             .Where(
                 booking =>
-                    booking.OrganizationId == LegacyOrganization.Id);
+                    booking.OrganizationId == organizationId);
 
+    /// <param name="fromUtc">Only bookings that end after this, when set.</param>
+    /// <param name="toUtc">Only bookings that start before this, when set.</param>
     public async Task<IReadOnlyCollection<Booking>>
         GetAllAsync(
-            CancellationToken cancellationToken)
+            int organizationId,
+            CancellationToken cancellationToken,
+            DateTimeOffset? fromUtc = null,
+            DateTimeOffset? toUtc = null)
     {
-        return await LegacyBookings
-            .AsNoTracking()
+        var bookings =
+            BookingsOf(organizationId)
+                .AsNoTracking();
+
+        if (fromUtc is { } from)
+        {
+            var start = from.ToUniversalTime();
+            bookings = bookings.Where(booking => booking.EndUtc > start);
+        }
+
+        if (toUtc is { } to)
+        {
+            var end = to.ToUniversalTime();
+            bookings = bookings.Where(booking => booking.StartUtc < end);
+        }
+
+        return await bookings
             .Include(booking => booking.Room)
             .OrderBy(booking => booking.StartUtc)
             .ThenBy(booking => booking.Room.Name)
@@ -65,10 +121,11 @@ public sealed class BookingService(
     }
 
     public async Task<Booking?> GetByIdAsync(
+        int organizationId,
         int bookingId,
         CancellationToken cancellationToken)
     {
-        return await LegacyBookings
+        return await BookingsOf(organizationId)
             .AsNoTracking()
             .Include(booking => booking.Room)
             .SingleOrDefaultAsync(
@@ -78,7 +135,9 @@ public sealed class BookingService(
     }
 
     public async Task<BookingMutationResult> CreateAsync(
+        int organizationId,
         SaveBookingRequest request,
+        BookingActor? actor,
         CancellationToken cancellationToken)
     {
         var startUtc =
@@ -98,8 +157,12 @@ public sealed class BookingService(
                 BookingMutationFailure.StartNotInFuture);
         }
 
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         var roomExists =
-            await RoomExistsAsync(
+            await ActiveRoomExistsAsync(
+                organizationId,
                 request.RoomId,
                 cancellationToken);
 
@@ -126,13 +189,14 @@ public sealed class BookingService(
 
         var booking =
             Booking.Create(
-                organizationId: LegacyOrganization.Id,
+                organizationId: organizationId,
                 roomId: request.RoomId,
                 title: request.Title!,
                 bookedBy: request.BookedBy!,
                 startUtc: startUtc,
                 endUtc: endUtc,
-                createdUtc: nowUtc);
+                createdUtc: nowUtc,
+                createdByUserId: actor?.UserId);
 
         dbContext.Bookings.Add(
             booking);
@@ -140,6 +204,7 @@ public sealed class BookingService(
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException exception)
             when (IsOverlapConstraint(exception))
@@ -157,12 +222,17 @@ public sealed class BookingService(
     }
 
     public async Task<BookingMutationResult> UpdateAsync(
+        int organizationId,
         int bookingId,
         SaveBookingRequest request,
+        BookingActor? actor,
         CancellationToken cancellationToken)
     {
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         var booking =
-            await LegacyBookings
+            await BookingsOf(organizationId)
                 .SingleOrDefaultAsync(
                     booking =>
                         booking.Id == bookingId,
@@ -174,11 +244,21 @@ public sealed class BookingService(
                 BookingMutationFailure.BookingNotFound);
         }
 
+        if (actor is not null &&
+            !actor.MayModify(booking))
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.PermissionDenied);
+        }
+
         var startUtc =
             request.StartUtc.ToUniversalTime();
 
         var endUtc =
             request.EndUtc.ToUniversalTime();
+
+        var nowUtc =
+            timeProvider.GetUtcNow();
 
         // A booking cannot be moved into the past. Changes that keep the
         // period as it is (e.g. a corrected title) stay possible, also for
@@ -188,14 +268,23 @@ public sealed class BookingService(
             || endUtc != booking.EndUtc;
 
         if (periodChanged
-            && startUtc <= timeProvider.GetUtcNow())
+            && startUtc <= nowUtc)
         {
             return BookingMutationResult.Failed(
                 BookingMutationFailure.StartNotInFuture);
         }
 
+        // A booking may stay in a room that has since been archived as long
+        // as neither the room nor the period changes; it cannot be moved
+        // into or within an archived room.
+        var keepsRoomAndPeriod =
+            request.RoomId == booking.RoomId
+            && !periodChanged;
+
         var roomExists =
-            await RoomExistsAsync(
+            keepsRoomAndPeriod
+            || await ActiveRoomExistsAsync(
+                organizationId,
                 request.RoomId,
                 cancellationToken);
 
@@ -225,11 +314,14 @@ public sealed class BookingService(
             title: request.Title!,
             bookedBy: request.BookedBy!,
             startUtc: startUtc,
-            endUtc: endUtc);
+            endUtc: endUtc,
+            updatedUtc: nowUtc,
+            updatedByUserId: actor?.UserId);
 
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException exception)
             when (IsOverlapConstraint(exception))
@@ -246,12 +338,17 @@ public sealed class BookingService(
             booking);
     }
 
-    public async Task<bool> DeleteAsync(
+    public async Task<BookingMutationFailure> DeleteAsync(
+        int organizationId,
         int bookingId,
+        BookingActor? actor,
         CancellationToken cancellationToken)
     {
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         var booking =
-            await LegacyBookings
+            await BookingsOf(organizationId)
                 .SingleOrDefaultAsync(
                     booking =>
                         booking.Id == bookingId,
@@ -259,7 +356,13 @@ public sealed class BookingService(
 
         if (booking is null)
         {
-            return false;
+            return BookingMutationFailure.BookingNotFound;
+        }
+
+        if (actor is not null &&
+            !actor.MayModify(booking))
+        {
+            return BookingMutationFailure.PermissionDenied;
         }
 
         dbContext.Bookings.Remove(
@@ -268,7 +371,9 @@ public sealed class BookingService(
         await dbContext.SaveChangesAsync(
             cancellationToken);
 
-        return true;
+        await transaction.CommitAsync(cancellationToken);
+
+        return BookingMutationFailure.None;
     }
 
     private static bool IsOverlapConstraint(
@@ -281,7 +386,8 @@ public sealed class BookingService(
                 StringComparison.Ordinal);
     }
 
-    private Task<bool> RoomExistsAsync(
+    private Task<bool> ActiveRoomExistsAsync(
+        int organizationId,
         int roomId,
         CancellationToken cancellationToken)
     {
@@ -289,7 +395,7 @@ public sealed class BookingService(
             .AnyAsync(
                 room =>
                     room.Id == roomId
-                    && room.OrganizationId == LegacyOrganization.Id
+                    && room.OrganizationId == organizationId
                     && room.ArchivedUtc == null,
                 cancellationToken);
     }

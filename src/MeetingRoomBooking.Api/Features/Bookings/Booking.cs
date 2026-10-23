@@ -65,7 +65,8 @@ public sealed class Booking
         string bookedBy,
         DateTimeOffset startUtc,
         DateTimeOffset endUtc,
-        DateTimeOffset createdUtc)
+        DateTimeOffset createdUtc,
+        int? createdByUserId = null)
     {
         // There is deliberately no database default to fall back on: a
         // booking that does not name its organisation is a bug.
@@ -79,7 +80,8 @@ public sealed class Booking
         var booking = new Booking
         {
             OrganizationId = organizationId,
-            CreatedUtc = createdUtc.ToUniversalTime()
+            CreatedUtc = createdUtc.ToUniversalTime(),
+            CreatedByUserId = createdByUserId
         };
 
         booking.ApplyDetails(
@@ -92,12 +94,15 @@ public sealed class Booking
         return booking;
     }
 
+    /// <param name="updatedByUserId">The signed-in user making the change; null in anonymous demo mode.</param>
     public void Update(
         int roomId,
         string title,
         string bookedBy,
         DateTimeOffset startUtc,
-        DateTimeOffset endUtc)
+        DateTimeOffset endUtc,
+        DateTimeOffset updatedUtc,
+        int? updatedByUserId = null)
     {
         ApplyDetails(
             roomId,
@@ -105,6 +110,9 @@ public sealed class Booking
             bookedBy,
             startUtc,
             endUtc);
+
+        UpdatedUtc = updatedUtc.ToUniversalTime();
+        UpdatedByUserId = updatedByUserId;
     }
 
     private void ApplyDetails(

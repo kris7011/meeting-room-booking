@@ -68,13 +68,14 @@ public sealed class CorsTests
     [Fact]
     public async Task Production_SendsNoCorsHeaders()
     {
-        using var factory = new MeetingRoomBookingApiFactory();
+        // Anonymous demo mode is refused outside Development and Testing.
+        using var factory = new MeetingRoomBookingApiFactory { AllowAnonymousLegacyApi = false };
         using var client = CreateClient(factory, "Production");
 
         using var request =
             new HttpRequestMessage(
                 HttpMethod.Get,
-                "/api/rooms");
+                "/health");
         request.Headers.Add("Origin", ExpoWebOrigin);
 
         using var response = await client.SendAsync(request);

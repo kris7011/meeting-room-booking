@@ -1,15 +1,21 @@
-using Microsoft.AspNetCore.Mvc;
+using MeetingRoomBooking.Api.Data;
+using MeetingRoomBooking.Api.Features.Organizations;
 
 namespace MeetingRoomBooking.Api.Features.Bookings;
 
 public static class BookingEndpoints
 {
-    public static IEndpointRouteBuilder MapBookingEndpoints(
-        this IEndpointRouteBuilder endpoints)
+    /// <summary>
+    /// The original /api/bookings endpoints, always on the legacy
+    /// organisation. Mapped in a legacy group: anonymous only in demo mode,
+    /// otherwise for members of the legacy organisation (see
+    /// <see cref="LegacyApiAccess"/>), with the same rules as the
+    /// organisation endpoints.
+    /// </summary>
+    public static RouteGroupBuilder MapBookingEndpoints(
+        this RouteGroupBuilder group)
     {
-        var group =
-            endpoints.MapGroup("/api/bookings")
-                .WithTags("Bookings");
+        group.WithTags("Bookings");
 
         group.MapGet(
                 "",
@@ -36,8 +42,50 @@ public static class BookingEndpoints
                 DeleteAsync)
             .WithName("DeleteBooking");
 
-        return endpoints;
+        return group;
     }
+
+    /// <summary>
+    /// /api/organizations/{organizationId}/bookings: every member may list,
+    /// read and create bookings; Owners and Admins may change and delete all
+    /// of them, Members only their own.
+    /// </summary>
+    public static RouteGroupBuilder MapOrganizationBookingEndpoints(
+        this RouteGroupBuilder organization)
+    {
+        var group =
+            organization.MapGroup("/bookings")
+                .WithTags("Organisation bookings");
+
+        group.MapGet(
+                "",
+                GetOrganizationBookingsAsync)
+            .WithName("GetOrganizationBookings");
+
+        group.MapGet(
+                "/{bookingId:int}",
+                GetOrganizationBookingAsync)
+            .WithName("GetOrganizationBooking");
+
+        group.MapPost(
+                "",
+                CreateOrganizationBookingAsync)
+            .WithName("CreateOrganizationBooking");
+
+        group.MapPut(
+                "/{bookingId:int}",
+                UpdateOrganizationBookingAsync)
+            .WithName("UpdateOrganizationBooking");
+
+        group.MapDelete(
+                "/{bookingId:int}",
+                DeleteOrganizationBookingAsync)
+            .WithName("DeleteOrganizationBooking");
+
+        return organization;
+    }
+
+    // Legacy endpoints
 
     private static async Task<IResult> GetAllAsync(
         BookingService service,
@@ -45,6 +93,7 @@ public static class BookingEndpoints
     {
         var bookings =
             await service.GetAllAsync(
+                LegacyOrganization.Id,
                 cancellationToken);
 
         var responses =
@@ -64,12 +113,13 @@ public static class BookingEndpoints
     {
         var booking =
             await service.GetByIdAsync(
+                LegacyOrganization.Id,
                 bookingId,
                 cancellationToken);
 
         if (booking is null)
         {
-            return CreateBookingNotFoundProblem(
+            return ApiProblems.BookingNotFound(
                 bookingId);
         }
 
@@ -81,6 +131,7 @@ public static class BookingEndpoints
     private static async Task<IResult> CreateAsync(
         SaveBookingRequest request,
         BookingService service,
+        CurrentOrganization organization,
         CancellationToken cancellationToken)
     {
         var validationResult =
@@ -94,18 +145,14 @@ public static class BookingEndpoints
 
         var result =
             await service.CreateAsync(
+                LegacyOrganization.Id,
                 request,
+                ActorOf(organization),
                 cancellationToken);
 
-        var failureResult =
-            HandleMutationFailure(
-                result.Failure,
-                bookingId: null,
-                roomId: request.RoomId);
-
-        if (failureResult is not null)
+        if (HandleMutationFailure(result.Failure, bookingId: null, roomId: request.RoomId) is { } failure)
         {
-            return failureResult;
+            return failure;
         }
 
         var booking =
@@ -122,6 +169,7 @@ public static class BookingEndpoints
         int bookingId,
         SaveBookingRequest request,
         BookingService service,
+        CurrentOrganization organization,
         CancellationToken cancellationToken)
     {
         var validationResult =
@@ -135,48 +183,225 @@ public static class BookingEndpoints
 
         var result =
             await service.UpdateAsync(
+                LegacyOrganization.Id,
                 bookingId,
                 request,
+                ActorOf(organization),
                 cancellationToken);
 
-        var failureResult =
-            HandleMutationFailure(
-                result.Failure,
-                bookingId,
-                request.RoomId);
-
-        if (failureResult is not null)
+        if (HandleMutationFailure(result.Failure, bookingId, request.RoomId) is { } failure)
         {
-            return failureResult;
+            return failure;
+        }
+
+        return Results.Ok(
+            BookingResponse.FromBooking(
+                GetSuccessfulBooking(
+                    result)));
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        int bookingId,
+        BookingService service,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken)
+    {
+        var failure =
+            await service.DeleteAsync(
+                LegacyOrganization.Id,
+                bookingId,
+                ActorOf(organization),
+                cancellationToken);
+
+        return HandleMutationFailure(failure, bookingId, roomId: 0)
+            ?? Results.NoContent();
+    }
+
+    // In anonymous demo mode nobody is signed in: changes have no actor.
+    private static BookingActor? ActorOf(
+        CurrentOrganization organization) =>
+        organization.Caller is { } caller
+            ? BookingActor.From(caller)
+            : null;
+
+    // Organisation endpoints
+
+    private static async Task<IResult> GetOrganizationBookingsAsync(
+        DateTimeOffset? fromUtc,
+        DateTimeOffset? toUtc,
+        BookingService service,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken)
+    {
+        if (fromUtc is not null &&
+            toUtc is not null &&
+            toUtc <= fromUtc)
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]>
+                {
+                    ["toUtc"] = ["toUtc must be later than fromUtc."]
+                });
+        }
+
+        var caller =
+            organization.Required();
+
+        var actor =
+            BookingActor.From(caller);
+
+        var bookings =
+            await service.GetAllAsync(
+                caller.OrganizationId,
+                cancellationToken,
+                fromUtc,
+                toUtc);
+
+        return Results.Ok(
+            bookings
+                .Select(booking => OrganizationBookingResponse.FromBooking(booking, actor))
+                .ToArray());
+    }
+
+    private static async Task<IResult> GetOrganizationBookingAsync(
+        int bookingId,
+        BookingService service,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken)
+    {
+        var caller =
+            organization.Required();
+
+        var booking =
+            await service.GetByIdAsync(
+                caller.OrganizationId,
+                bookingId,
+                cancellationToken);
+
+        return booking is null
+            ? ApiProblems.BookingNotFound(bookingId)
+            : Results.Ok(
+                OrganizationBookingResponse.FromBooking(
+                    booking,
+                    BookingActor.From(caller)));
+    }
+
+    private static async Task<IResult> CreateOrganizationBookingAsync(
+        SaveBookingRequest request,
+        BookingService service,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken)
+    {
+        var caller =
+            organization.Required();
+
+        // "Booked by" defaults to the signed-in user's name.
+        request =
+            WithDefaultBookedBy(
+                request,
+                caller);
+
+        if (ValidateRequest(request) is { } invalid)
+        {
+            return invalid;
+        }
+
+        var actor =
+            BookingActor.From(caller);
+
+        var result =
+            await service.CreateAsync(
+                caller.OrganizationId,
+                request,
+                actor,
+                cancellationToken);
+
+        if (HandleMutationFailure(result.Failure, bookingId: null, roomId: request.RoomId) is { } failure)
+        {
+            return failure;
         }
 
         var booking =
             GetSuccessfulBooking(
                 result);
 
-        return Results.Ok(
-            BookingResponse.FromBooking(
-                booking));
+        return Results.Created(
+            $"/api/organizations/{caller.OrganizationPublicId}/bookings/{booking.Id}",
+            OrganizationBookingResponse.FromBooking(
+                booking,
+                actor));
     }
 
-    private static async Task<IResult> DeleteAsync(
+    private static async Task<IResult> UpdateOrganizationBookingAsync(
         int bookingId,
+        SaveBookingRequest request,
         BookingService service,
+        CurrentOrganization organization,
         CancellationToken cancellationToken)
     {
-        var wasDeleted =
-            await service.DeleteAsync(
-                bookingId,
-                cancellationToken);
+        var caller =
+            organization.Required();
 
-        if (!wasDeleted)
+        request =
+            WithDefaultBookedBy(
+                request,
+                caller);
+
+        if (ValidateRequest(request) is { } invalid)
         {
-            return CreateBookingNotFoundProblem(
-                bookingId);
+            return invalid;
         }
 
-        return Results.NoContent();
+        var actor =
+            BookingActor.From(caller);
+
+        var result =
+            await service.UpdateAsync(
+                caller.OrganizationId,
+                bookingId,
+                request,
+                actor,
+                cancellationToken);
+
+        if (HandleMutationFailure(result.Failure, bookingId, request.RoomId) is { } failure)
+        {
+            return failure;
+        }
+
+        return Results.Ok(
+            OrganizationBookingResponse.FromBooking(
+                GetSuccessfulBooking(result),
+                actor));
     }
+
+    private static async Task<IResult> DeleteOrganizationBookingAsync(
+        int bookingId,
+        BookingService service,
+        CurrentOrganization organization,
+        CancellationToken cancellationToken)
+    {
+        var caller =
+            organization.Required();
+
+        var failure =
+            await service.DeleteAsync(
+                caller.OrganizationId,
+                bookingId,
+                BookingActor.From(caller),
+                cancellationToken);
+
+        return HandleMutationFailure(failure, bookingId, roomId: 0)
+            ?? Results.NoContent();
+    }
+
+    private static SaveBookingRequest WithDefaultBookedBy(
+        SaveBookingRequest request,
+        OrganizationCaller caller) =>
+        string.IsNullOrWhiteSpace(request.BookedBy)
+            ? request with { BookedBy = caller.DisplayName }
+            : request;
+
+    // Shared
 
     private static IResult? ValidateRequest(
         SaveBookingRequest request)
@@ -205,24 +430,17 @@ public static class BookingEndpoints
                 null,
 
             BookingMutationFailure.BookingNotFound =>
-                CreateBookingNotFoundProblem(
+                ApiProblems.BookingNotFound(
                     bookingId
                     ?? throw new InvalidOperationException(
                         "A booking ID is required for a booking-not-found result.")),
 
             BookingMutationFailure.RoomNotFound =>
-                CreateProblem(
-                    statusCode:
-                        StatusCodes.Status404NotFound,
-                    code:
-                        "meeting_room_not_found",
-                    title:
-                        "Meeting room not found",
-                    detail:
-                        $"Meeting room {roomId} does not exist."),
+                ApiProblems.MeetingRoomNotFound(
+                    roomId),
 
             BookingMutationFailure.Overlap =>
-                CreateProblem(
+                ApiProblems.Create(
                     statusCode:
                         StatusCodes.Status409Conflict,
                     code:
@@ -242,6 +460,17 @@ public static class BookingEndpoints
                         ]
                     }),
 
+            BookingMutationFailure.PermissionDenied =>
+                ApiProblems.Create(
+                    statusCode:
+                        StatusCodes.Status403Forbidden,
+                    code:
+                        "booking_permission_denied",
+                    title:
+                        "Not your booking",
+                    detail:
+                        "Members can only change and delete bookings they made themselves. Ask an Owner or Admin."),
+
             _ =>
                 throw new ArgumentOutOfRangeException(
                     nameof(failure),
@@ -256,40 +485,5 @@ public static class BookingEndpoints
         return result.Booking
             ?? throw new InvalidOperationException(
                 "A successful booking result did not contain a booking.");
-    }
-
-    private static IResult CreateBookingNotFoundProblem(
-        int bookingId)
-    {
-        return CreateProblem(
-            statusCode:
-                StatusCodes.Status404NotFound,
-            code:
-                "booking_not_found",
-            title:
-                "Booking not found",
-            detail:
-                $"Booking {bookingId} does not exist.");
-    }
-
-    private static IResult CreateProblem(
-        int statusCode,
-        string code,
-        string title,
-        string detail)
-    {
-        var problemDetails =
-            new ProblemDetails
-            {
-                Status = statusCode,
-                Title = title,
-                Detail = detail
-            };
-
-        problemDetails.Extensions["code"] =
-            code;
-
-        return Results.Problem(
-            problemDetails);
     }
 }

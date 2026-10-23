@@ -148,13 +148,23 @@ The `Booking` entity validates its own core invariants, including required value
 ```text
 GET    /health
 
-GET    /api/rooms
-
 GET    /api/me                                         (Microsoft Entra access token; read-only)
 POST   /api/me/registration                            (Microsoft Entra access token)
 POST   /api/organizations/{organizationId}/invitations (Owner or Admin of the organisation)
 POST   /api/invitations/accept                         (the invited, registered user)
 
+Every endpoint below: a valid access token and a membership of {organizationId}
+GET    /api/organizations/{organizationId}/rooms                 (?includeArchived=true: Owner/Admin)
+GET    /api/organizations/{organizationId}/rooms/available       (?startUtc&endUtc&minCapacity)
+GET    /api/organizations/{organizationId}/bookings              (?fromUtc&toUtc)
+GET    /api/organizations/{organizationId}/bookings/{id}
+POST   /api/organizations/{organizationId}/bookings
+PUT    /api/organizations/{organizationId}/bookings/{id}         (Owner/Admin, or the Member who made it)
+DELETE /api/organizations/{organizationId}/bookings/{id}         (Owner/Admin, or the Member who made it)
+
+The original endpoints, always on the legacy organisation (see "The original endpoints")
+GET    /api/rooms
+GET    /api/rooms/available
 GET    /api/bookings
 GET    /api/bookings/{id}
 POST   /api/bookings
@@ -566,7 +576,7 @@ What is in place:
 
 - `GET /api/me` requires a valid access token and returns the caller as the API sees them: display name, `preferred_username`, tenant ID and, once the identity is registered, the API's own user (`publicId`, display name, and the organisations the user belongs to with their role). It is read-only and creates no users or identities.
 - `POST /api/me/registration` registers the signed-in identity as a Room Booking user; see [Registration and organisation access](#registration-and-organisation-access).
-- The room and booking endpoints are unchanged and still need no sign-in. A token sent to them, valid or not, is ignored.
+- Every room and booking endpoint requires a signed-in member of the organisation; see [Organisation access control](#organisation-access-control).
 - Without `Entra:ApiClientId` the API starts as before, and `GET /api/me` answers `503` with `code: "authentication_not_configured"`.
 
 ### What a token must satisfy
@@ -622,9 +632,45 @@ The API needs its own app registration, separate from the mobile app's:
 
 - Linking a second identity (for example a work account and a personal account) to the same user.
 - Creating organisations, revoking invitations without replacing them, and changing or removing memberships through the API.
-- Organisation-based access control on rooms and bookings: the existing endpoints stay anonymous and limited to the legacy organisation until they check memberships.
-- Taking `BookedBy` from the signed-in user instead of the request body.
 - CORS allows only `Accept` and `Content-Type`, so browser clients cannot send `Authorization` yet; native apps are not affected.
+
+## Organisation access control
+
+Every organisation's rooms and bookings are reached through `/api/organizations/{organizationId}/…`, where `{organizationId}` is the organisation's public ID (a GUID). The ID alone never grants anything. Before any of these endpoints runs, one filter (`OrganizationAccessFilter`) checks, in this order:
+
+| Check | Failure |
+| --- | --- |
+| A valid access token (see [What a token must satisfy](#what-a-token-must-satisfy)) | `401` |
+| The identity is registered | `403 user_not_registered` |
+| The user is not disabled | `403 user_disabled` |
+| The user is a member of that organisation, and it is not deleted | `404 organization_not_found`: an organisation you are not in looks exactly like one that does not exist |
+| The endpoint's role requirement, if it has one | `403 organization_permission_denied` |
+
+The membership and role are read from the database for every request; nothing in the request body or the token says which organisations someone belongs to. Every query below the filter is limited to the caller's organisation, so a room or booking ID from another organisation is `404 meeting_room_not_found` / `404 booking_not_found`, whether or not it exists. Integer IDs can be guessed, but guessing one never reaches another organisation's data.
+
+| Role | Rooms and bookings |
+| --- | --- |
+| Owner | Search, book, change and delete every booking of the organisation |
+| Admin | As Owner |
+| Member | Search and book; change and delete only bookings they made (`403 booking_permission_denied` otherwise) |
+
+A new booking records the signed-in user as its creator (`CreatedByUserId`) and every change the user who made it (`UpdatedByUserId`, `UpdatedUtc`). `bookedBy` defaults to the user's display name when it is left out. Bookings made before sign-in have no creator, so only Owners and Admins can change them. The organisation responses add `createdByCurrentUser` and `canModify`, so a client can show or hide its edit and delete actions; the API checks every change itself regardless.
+
+The existing booking rules are unchanged: validation, the start in the future, the overlap triggers and `409 booking_overlap`. Booking changes now run in one `BEGIN IMMEDIATE` transaction each, so checking the room and writing the booking cannot be interleaved with another writer.
+
+### The original endpoints
+
+`/api/rooms` and `/api/bookings` keep their URLs, request and response shapes and booking IDs, and always work on the legacy organisation. They are protected exactly like `/api/organizations/{legacy organisation}/…`: a signed-in, registered member of the legacy organisation, whose role decides what they may change. Without a token they answer `401`; a registered user who is not a member gets `404 organization_not_found`.
+
+For a local demo without sign-in they can be made anonymous again, as before:
+
+```json
+"LegacyApi": {
+  "AllowAnonymous": true
+}
+```
+
+or `$env:LegacyApi__AllowAnonymous = "true"`. This is only accepted in the `Development` and `Testing` environments: in any other environment the API refuses to start with it, so real organisation data is never anonymous in production. In demo mode a token sent to these endpoints is ignored, and the organisation endpoints still require sign-in. The default, in `appsettings.json`, is `false`. The Angular frontend in this repository calls the original endpoints without a token, so it needs demo mode.
 
 ## Registration and organisation access
 

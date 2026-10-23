@@ -47,4 +47,40 @@ public static class ApiProblems
             "user_not_registered",
             "User not registered",
             "Register with POST /api/me/registration before using this endpoint.");
+
+    /// <summary>
+    /// No such organisation, or the caller is not a member of it: the two
+    /// look the same, so an organisation's existence is never revealed.
+    /// </summary>
+    public static IResult OrganizationNotFound() =>
+        Create(
+            StatusCodes.Status404NotFound,
+            "organization_not_found",
+            "Organisation not found",
+            "The organisation does not exist, or you are not a member of it.");
+
+    /// <summary>The caller is a member, but their role may not do this.</summary>
+    public static IResult OrganizationPermissionDenied(
+        string detail = "Your role in this organisation does not allow this.") =>
+        Create(
+            StatusCodes.Status403Forbidden,
+            "organization_permission_denied",
+            "Not allowed",
+            detail);
+
+    public static IResult MeetingRoomNotFound(
+        int roomId) =>
+        Create(
+            StatusCodes.Status404NotFound,
+            "meeting_room_not_found",
+            "Meeting room not found",
+            $"Meeting room {roomId} does not exist.");
+
+    public static IResult BookingNotFound(
+        int bookingId) =>
+        Create(
+            StatusCodes.Status404NotFound,
+            "booking_not_found",
+            "Booking not found",
+            $"Booking {bookingId} does not exist.");
 }
