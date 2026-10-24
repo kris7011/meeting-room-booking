@@ -337,27 +337,6 @@ Rules that the service layer must enforce when the endpoints arrive, because the
 - An Owner whose user account is disabled still counts as an Owner for the database rule; the service decides how to treat disabled Owners.
 - Audit `Details` must never contain access tokens, invitation tokens or token hashes.
 
-## Shared engineering standards for Claude Code
-
-The repository's [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md)
-document English-only engineering artifacts, idiomatic language/framework
-best practices, clean code, project-appropriate architecture, security,
-testing, and data preservation.
-
-To **opt in** to the same standards across all your local Claude Code
-projects, run this from the repository root in PowerShell:
-
-```powershell
-.\scripts\Install-ClaudeUserStandards.ps1 -Preview
-.\scripts\Install-ClaudeUserStandards.ps1
-```
-
-The installer manages one clearly marked section of
-`~/.claude/CLAUDE.md`. It preserves unrelated instructions, creates a
-timestamped backup if the file already exists, and is safe to run again.
-It does not modify Claude Code's private automatic memory. Start a new
-Claude Code session to load the updated user-level instructions.
-
 ## Local operation and cloud exit (phase 4A)
 
 To start the signed-in .NET API locally, create a verified manual SQLite
