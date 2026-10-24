@@ -1,3 +1,14 @@
+<#
+.SYNOPSIS
+Starts the Room Booking API on http://localhost against an existing SQLite database.
+
+.DESCRIPTION
+Refuses to start when the database file is missing, unless -InitializeEmpty
+is given for a deliberate new installation. The settings below apply only to
+the API process: they are put back when it stops, so a later `dotnet run` in
+the same PowerShell session does not silently keep using this database.
+#>
+[CmdletBinding()]
 param(
     [string]$DatabaseFile,
     [string]$EntraApiClientId = $env:Entra__ApiClientId,
@@ -5,6 +16,7 @@ param(
     [switch]$InitializeEmpty
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $apiProject = Join-Path $root 'src\MeetingRoomBooking.Api\MeetingRoomBooking.Api.csproj'
@@ -24,14 +36,30 @@ if ([string]::IsNullOrWhiteSpace($EntraApiClientId)) {
     throw 'Set Entra__ApiClientId or pass -EntraApiClientId. Signed-in Room Booking requires the API app registration.'
 }
 
-$env:ConnectionStrings__BookingDatabase = "Data Source=$DatabaseFile"
-$env:Entra__ApiClientId = $EntraApiClientId
-$env:Entra__AllowPersonalAccounts = 'true'
-$env:LegacyApi__AllowAnonymous = 'false'
-$env:ASPNETCORE_ENVIRONMENT = 'Development'
+# Development loads appsettings.Development.json (Entra and legacy API
+# settings) and turns on Swagger; the API is still reachable from this PC only.
+# Every other Entra setting, such as allowed tenants, comes from configuration.
+$settings = [ordered]@{
+    ConnectionStrings__BookingDatabase = "Data Source=""$DatabaseFile"""
+    Entra__ApiClientId                 = $EntraApiClientId
+    LegacyApi__AllowAnonymous          = 'false'
+    ASPNETCORE_ENVIRONMENT             = 'Development'
+}
+$previous = @{}
+foreach ($name in $settings.Keys) {
+    $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    [Environment]::SetEnvironmentVariable($name, $settings[$name], 'Process')
+}
 
-Write-Host "Room Booking local API on http://localhost:$Port"
-Write-Host "Database: $DatabaseFile"
-Write-Host 'Microsoft login remains online (Entra); the API and data are local.'
-dotnet run --project $apiProject --no-launch-profile -- --urls "http://localhost:$Port"
-if ($LASTEXITCODE -ne 0) { throw "API exited with code $LASTEXITCODE" }
+try {
+    Write-Host "Room Booking local API on http://localhost:$Port"
+    Write-Host "Database: $DatabaseFile"
+    Write-Host 'Microsoft login remains online (Entra); the API and data are local.'
+    dotnet run --project $apiProject --no-launch-profile -- --urls "http://localhost:$Port"
+    if ($LASTEXITCODE -ne 0) { throw "API exited with code $LASTEXITCODE" }
+}
+finally {
+    foreach ($name in $previous.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process')
+    }
+}
