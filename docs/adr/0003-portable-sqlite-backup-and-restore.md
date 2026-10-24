@@ -1,6 +1,6 @@
 # ADR 0003: Portable operation with SQLite snapshots and restore to a new file
 
-- **Status:** Proposed (pull request #13, Phase 4A)
+- **Status:** Accepted (implemented in PR #13; merged into `main` on 2026-10-24)
 - **Code:** `Data/DatabasePortability.cs`, `Data/DatabaseBackup.cs`,
   `tools/RoomBooking.DatabaseTool/`, `scripts/Start-Local.ps1`,
   `scripts/Backup-Local.ps1`, `scripts/Restore-Local.ps1`

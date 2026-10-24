@@ -11,7 +11,7 @@ code, code comments and README, not from notes written at the time.
 | --- | --- | --- |
 | [0001](0001-organisation-scoped-access-control.md) | Organisation-scoped access control in one endpoint filter | Accepted |
 | [0002](0002-database-enforced-invariants.md) | Critical invariants enforced by the database as well as the services | Accepted |
-| [0003](0003-portable-sqlite-backup-and-restore.md) | Portable operation with SQLite snapshots and restore to a new file | Proposed (PR #13) |
+| [0003](0003-portable-sqlite-backup-and-restore.md) | Portable operation with SQLite snapshots and restore to a new file | Accepted (PR #13 merged) |
 
 New ADRs: copy the structure of an existing one, number them sequentially,
 and keep them to one page.

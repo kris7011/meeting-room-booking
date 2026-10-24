@@ -16,8 +16,8 @@ The mobile client has its own walkthrough in
 | **[In review]** | Implemented on an open pull request, not yet on `main`. |
 | **[Not implemented]** | Proposed or future work. Nothing in the code does this yet. |
 
-Last reviewed: 2026-10-24, against branch `feature/phase4a-portable-local-backup`
-(commit `6c8e6dd`).
+Last reviewed: 2026-10-24, after backend PR #13 was merged into `main`
+(merge commit `c39ea4a`; validated feature commit `228e1eb`).
 
 ---
 
@@ -60,7 +60,7 @@ src/MeetingRoomBooking.Api/
     Migrations/                   Schema history (EF Core), including SQL triggers
     DatabaseInitializer.cs        Start-up: backup → migrate → verify invariants
     DatabaseBackup.cs             Verified backups: one snapshot, copied and fingerprinted
-    DatabasePortability.cs        Manual backup and restore-to-new-file   [In review]
+    DatabasePortability.cs        Manual backup and restore-to-new-file   [Tested]
   Features/                       One folder per feature: entity, contracts, endpoints, service
     Authentication/               Entra token validation
     Users/                        Signed-in identity, /api/me, registration
@@ -71,8 +71,8 @@ src/MeetingRoomBooking.Api/
     ApiProblems.cs                Problem Details with stable error codes
 src/meeting-room-booking-web/     Angular 21 client (original assignment UI)
 tests/MeetingRoomBooking.Api.IntegrationTests/
-tools/RoomBooking.DatabaseTool/   CLI for backup/restore                  [In review]
-scripts/                          Start-Local, Backup-Local, Restore-Local [In review]
+tools/RoomBooking.DatabaseTool/   CLI for backup/restore                  [Manual]
+scripts/                          Start-Local, Backup-Local, Restore-Local [Manual]
 ```
 
 The backend is **feature-oriented**: everything about bookings lives in
@@ -90,7 +90,7 @@ The backend is **feature-oriented**: everything about bookings lives in
 | xUnit + `WebApplicationFactory` | Integration tests against the real application and a temporary database |
 | Angular 21, Signals, Reactive Forms, Tailwind CSS 4, Vitest | The web client |
 | GitHub Actions | CI: backend build and tests, database tool build, frontend build and tests |
-| PowerShell | Local start, backup and restore scripts for Windows [In review] |
+| PowerShell | Local start, backup and restore scripts for Windows [Manual] |
 
 ## 4. How a request flows through the API
 
@@ -352,15 +352,15 @@ and carry a stable `code` extension (for example `booking_overlap`,
 | Time | `TestTimeProvider` replaces `TimeProvider`, so "must start in the future" tests do not decay | `BookingTimeValidationTests` |
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
 | Migrations | Databases built from older schemas with raw SQL, then migrated; data, IDs and triggers checked | `Migrations/*` |
-| Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [In review] |
-| Backup under writes | Repeated backups and restores while another connection commits bookings; a commit exactly between snapshot and copy; a saved but uncommitted booking; clean-up after a failed backup; no overwrite; fingerprints | `DatabaseBackupConcurrencyTests`, `DatabaseBackupTests` [In review] |
-| Restored API | Two-tenant data backed up while the API runs, restored, and served by a second API: same rows, 401 without a valid token, 404 for non-members, roles intact, original unchanged | `RestoredDatabaseApiTests` [In review] |
+| Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [Tested] |
+| Backup under writes | Repeated backups and restores while another connection commits bookings; a commit exactly between snapshot and copy; a saved but uncommitted booking; clean-up after a failed backup; no overwrite; fingerprints | `DatabaseBackupConcurrencyTests`, `DatabaseBackupTests` [Tested] |
+| Restored API | Two-tenant data backed up while the API runs, restored, and served by a second API: same rows, 401 without a valid token, 404 for non-members, roles intact, original unchanged | `RestoredDatabaseApiTests` [Tested] |
 | Safety | `TestDatabaseGuard` refuses any database outside the temp folder or inside the API project | `TestDatabaseGuard` |
 | Web client | Angular service and component tests (Vitest), run in CI | `src/meeting-room-booking-web` |
 | End to end | The mobile repository's Playwright suite starts this API on a temporary database | room-booking-mobile `e2e/` |
 
-On 2026-10-24 the backend suite had **303 passing tests** on the Phase 4A
-branch (`dotnet test`, Release, Windows).
+The final Phase 4A validation on 2026-10-24 reported **303 passing backend tests**
+(`dotnet test`, Release, Windows) at commit `228e1eb`, later merged in PR #13.
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
 device, production configuration, and performance under load.
@@ -396,7 +396,7 @@ usual sources, the later winning:
 A relative `Data Source` is resolved against the **process working
 directory**, not the project folder. `dotnet run --project …` from the
 repository root and from `src/MeetingRoomBooking.Api` would therefore open
-different files. `scripts/Start-Local.ps1` [In review] removes that ambiguity:
+different files. `scripts/Start-Local.ps1` [Manual] removes that ambiguity:
 it turns `-DatabaseFile` into an absolute path, refuses to start when the file
 is missing (unless `-InitializeEmpty`), prints the path, and sets
 `ConnectionStrings__BookingDatabase` only for the API process, restoring the
@@ -414,10 +414,10 @@ outside it.
 | Capability | Status |
 | --- | --- |
 | Verified backup before every migration of an existing database | [Tested] |
-| Manual backup: `scripts/Backup-Local.ps1` → `RoomBooking.DatabaseTool backup` | [In review], tested |
-| Restore into a **new** file only: `scripts/Restore-Local.ps1` → `restore` | [In review], tested |
-| Start the API on a chosen database file: `scripts/Start-Local.ps1` | [In review], manually tested |
-| API on a restored file still enforces sign-in and tenant boundaries | [In review], tested (`RestoredDatabaseApiTests`) |
+| Manual backup: `scripts/Backup-Local.ps1` → `RoomBooking.DatabaseTool backup` | [Manual], tested on a development-data copy |
+| Restore into a **new** file only: `scripts/Restore-Local.ps1` → `restore` | [Manual], tested on a development-data copy |
+| Start the API on a chosen database file: `scripts/Start-Local.ps1` | [Manual], tested on a development-data copy |
+| API on a restored file still enforces sign-in and tenant boundaries | [Tested] (`RestoredDatabaseApiTests`) |
 | Recovery test with a copy of the real development data | [Manual], 2026-10-24 (see [local-portability.md](local-portability.md#recovery-test-on-a-copy-of-the-real-data-2026-10-24)), including invariant and WAL-only-commit checks on copies ([follow-up](local-portability.md#follow-up-checks-on-the-same-copies-2026-10-24)) |
 | Automatic scheduled or off-site backups | [Not implemented] |
 | Export/import between different database engines | [Not implemented] |
@@ -435,7 +435,7 @@ How restore protects data (`DatabasePortability.RestoreToNewAsync`):
    rather than replace a file that appeared in the meantime.
 
 **How a backup is made** (`DatabasePortability.BackupAsync` and the API's
-start-up both call `DatabaseBackup.CreateVerifiedAsync`) [In review]:
+start-up both call `DatabaseBackup.CreateVerifiedAsync`) [Tested]:
 
 1. The source is opened **read-only**, and a deferred read transaction
    (`BeginTransaction(deferred: true)`) is started on it. SQLite fixes that
@@ -521,10 +521,9 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 
 ## 14. How this project was built
 
-This project was developed with AI assistance (Claude Code). As of
-2026-10-24, 27 of the 48 commits on `main` carry a `Co-Authored-By: Claude`
-trailer. Commits without the trailer are not necessarily written without AI
-help.
+This project was developed with AI assistance (Claude Code). Some commits
+carry a `Co-Authored-By: Claude` trailer; those trailers are not a complete
+record of AI involvement.
 
 Every change is verified the same way regardless of who wrote it: the
 automated test suite and CI must pass, database changes are tested on copies
