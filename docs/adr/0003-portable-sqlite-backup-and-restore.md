@@ -43,7 +43,12 @@ Constraints:
 
 - Positive: backups are ordinary files that can be copied anywhere; restore
   cannot destroy existing data; the restored database passes the same
-  start-up checks as any other (covered by `DatabasePortabilityTests`).
+  start-up checks as any other (covered by `DatabasePortabilityTests`), and an
+  API started on it keeps tenant data and access rules
+  (`RestoredDatabaseApiTests`).
+- Negative: the row-count verification is a separate statement from the
+  snapshot, so a backup taken while the API writes can fail verification and
+  must be repeated.
 - Negative: SQLite-specific. A hosted deployment on another engine would need
   its own export/import path.
 - Negative: no automatic schedule or off-site copy; backups are manual.

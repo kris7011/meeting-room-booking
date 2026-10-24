@@ -16,7 +16,8 @@ The mobile client has its own walkthrough in
 | **[In review]** | Implemented on an open pull request, not yet on `main`. |
 | **[Not implemented]** | Proposed or future work. Nothing in the code does this yet. |
 
-Last reviewed: 2026-10-24, against branch `feature/phase4a-portable-local-backup`.
+Last reviewed: 2026-10-24, against branch `feature/phase4a-portable-local-backup`
+(commit `dbe2a31`).
 
 ---
 
@@ -352,11 +353,12 @@ and carry a stable `code` extension (for example `booking_overlap`,
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
 | Migrations | Databases built from older schemas with raw SQL, then migrated; data, IDs and triggers checked | `Migrations/*` |
 | Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [In review] |
+| Restored API | Two-tenant data backed up while the API runs, restored, and served by a second API: same rows, 401 without a valid token, 404 for non-members, roles intact, original unchanged | `RestoredDatabaseApiTests` [In review] |
 | Safety | `TestDatabaseGuard` refuses any database outside the temp folder or inside the API project | `TestDatabaseGuard` |
 | Web client | Angular service and component tests (Vitest), run in CI | `src/meeting-room-booking-web` |
 | End to end | The mobile repository's Playwright suite starts this API on a temporary database | room-booking-mobile `e2e/` |
 
-On 2026-10-24 the backend suite had **294 passing tests** on the Phase 4A
+On 2026-10-24 the backend suite had **295 passing tests** on the Phase 4A
 branch (`dotnet test`, Release).
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
@@ -366,9 +368,7 @@ device, production configuration, and performance under load.
 
 - **Run the API:** `dotnet run --project src/MeetingRoomBooking.Api --launch-profile http`
   → `http://localhost:5003`. Set `Entra__ApiClientId` for signed-in endpoints.
-- **Database location:** the default connection string
-  `Data Source=meeting-room-booking.db` is **relative to the working
-  directory**. `scripts/Start-Local.ps1` [In review] always passes an absolute path.
+- **Database location:** see [below](#which-database-file-the-api-uses).
 - **Web client:** `npm --prefix src/meeting-room-booking-web start` →
   `http://localhost:4200`, proxied to the API. It calls the legacy endpoints
   without a token, so it needs `LegacyApi:AllowAnonymous=true` (Development only).
@@ -378,6 +378,36 @@ device, production configuration, and performance under load.
   Dockerfile, infrastructure-as-code or deployment workflow; any hosting is
   configured outside the code.
 
+### Which database file the API uses
+
+There is exactly one input: the connection string `BookingDatabase`, read
+once in [`Program.cs`](../src/MeetingRoomBooking.Api/Program.cs)
+(`GetConnectionString("BookingDatabase")`, lines 13–17). If it is missing,
+the API refuses to start. ASP.NET Core configuration resolves it from the
+usual sources, the later winning:
+
+1. `appsettings.json`: `Data Source=meeting-room-booking.db`.
+2. `appsettings.{Environment}.json` (does not set it today).
+3. Environment variables: `ConnectionStrings__BookingDatabase`
+   (the double underscore stands for `:`).
+4. Command-line arguments.
+
+A relative `Data Source` is resolved against the **process working
+directory**, not the project folder. `dotnet run --project …` from the
+repository root and from `src/MeetingRoomBooking.Api` would therefore open
+different files. `scripts/Start-Local.ps1` [In review] removes that ambiguity:
+it turns `-DatabaseFile` into an absolute path, refuses to start when the file
+is missing (unless `-InitializeEmpty`), prints the path, and sets
+`ConnectionStrings__BookingDatabase` only for the API process, restoring the
+previous value afterwards.
+
+The automatic pre-migration backups go to `Database:BackupDirectory`, or to a
+`backups` folder next to the database file when that is not set
+([`DatabaseExtensions.cs`](../src/MeetingRoomBooking.Api/Data/DatabaseExtensions.cs),
+`DatabaseBackup.CreateVerifiedAsync`). The integration tests set both values
+to files in the temp folder, and `TestDatabaseGuard` refuses any database
+outside it.
+
 ## 11. Backup and restoration
 
 | Capability | Status |
@@ -386,6 +416,8 @@ device, production configuration, and performance under load.
 | Manual backup: `scripts/Backup-Local.ps1` → `RoomBooking.DatabaseTool backup` | [In review], tested |
 | Restore into a **new** file only: `scripts/Restore-Local.ps1` → `restore` | [In review], tested |
 | Start the API on a chosen database file: `scripts/Start-Local.ps1` | [In review], manually tested |
+| API on a restored file still enforces sign-in and tenant boundaries | [In review], tested (`RestoredDatabaseApiTests`) |
+| Recovery test with a copy of the real development data | [Manual], 2026-10-24 (see [local-portability.md](local-portability.md#recovery-test-on-a-copy-of-the-real-data-2026-10-24)) |
 | Automatic scheduled or off-site backups | [Not implemented] |
 | Export/import between different database engines | [Not implemented] |
 
@@ -399,6 +431,26 @@ How restore protects data (`DatabasePortability.RestoreToNewAsync`):
 4. Verifies the copy again (integrity, foreign keys, identical row counts).
 5. `File.Move` without overwrite: atomic on the same volume, and it fails
    rather than replace a file that appeared in the meantime.
+
+**How a backup is made** (`DatabasePortability.BackupAsync` →
+`DatabaseBackup.CreateVerifiedAsync`): the source is opened **read-only**, and
+`VACUUM INTO $path` writes a consistent, compacted snapshot to a new file
+named `<database>.manual-<UTC timestamp>.db`. Because the snapshot comes from
+SQLite itself, commits that still sit in the `-wal` file are included, which
+a plain file copy of a running database would miss. The snapshot is then
+checked with `PRAGMA integrity_check` and compared table by table with the
+source's row counts.
+
+**Why restore never overwrites.** A restore is only ever needed when something
+has gone wrong, which is also when a mistake is most likely: the wrong file
+chosen, an older backup picked, a path typed into the wrong field. If restore
+could replace a database, one such slip would destroy the only good copy, and
+the damage would be invisible until someone missed a booking. Writing to a new
+file makes every restore reversible: the original stays where it was, the
+restored copy can be inspected and started on its own, and "switching over"
+is a separate, deliberate step (`Start-Local.ps1 -DatabaseFile …`). Checking
+for leftover `-wal`/`-shm` files matters too: SQLite would apply an old
+database's WAL to a new file of the same name and corrupt it.
 
 Step-by-step instructions: [local-portability.md](local-portability.md).
 Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
@@ -428,6 +480,14 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 - **No deployment or production configuration in the repository.**
 - **Restore does not check versions.** A backup made by a newer API version
   can be restored and started by an older one; nothing warns about it.
+- **Backup verification can fail while the API writes.** `VACUUM INTO` and
+  the source row count are separate statements, so a booking committed
+  between them makes the counts differ. The result is a reported failure, not
+  a bad backup, but the unverified file is left in the backup folder.
+  Proposed fix [Not implemented]: compare against counts taken from the same
+  read snapshot, and delete the file when verification fails.
+- **One `Start-Local.ps1` per checkout.** It builds Debug in place, and a
+  running instance locks the output, so a second instance fails at the build.
 - **No account linking**, no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
