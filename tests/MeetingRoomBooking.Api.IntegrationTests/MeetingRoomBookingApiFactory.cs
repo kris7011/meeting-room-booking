@@ -22,19 +22,21 @@ public sealed class MeetingRoomBookingApiFactory
     public TestTimeProvider Clock { get; } =
         new(DefaultNow);
 
-    private readonly string databasePath =
+    /// <summary>
+    /// The test's own SQLite file under the system temp folder: a new one by
+    /// default, or an existing one, such as a restored backup, to start the
+    /// API on. It is deleted when the factory is disposed.
+    /// </summary>
+    public string DatabasePath { get; init; } =
         Path.Combine(
             Path.GetTempPath(),
             $"meeting-room-booking-tests-{Guid.NewGuid():N}.db");
 
-    /// <summary>The test's own SQLite file under the system temp folder.</summary>
-    public string DatabasePath => databasePath;
-
     public string ConnectionString =>
-        $"Data Source={databasePath};Pooling=False";
+        $"Data Source={DatabasePath};Pooling=False";
 
     private string BackupDirectory =>
-        $"{databasePath}-backups";
+        $"{DatabasePath}-backups";
 
     /// <summary>
     /// <c>LegacyApi:AllowAnonymous</c>. The suites written before sign-in
@@ -48,7 +50,7 @@ public sealed class MeetingRoomBookingApiFactory
     protected override void ConfigureWebHost(
         IWebHostBuilder builder)
     {
-        TestDatabaseGuard.EnsureIsolated(databasePath);
+        TestDatabaseGuard.EnsureIsolated(DatabasePath);
 
         builder.UseEnvironment("Testing");
 
@@ -98,13 +100,13 @@ public sealed class MeetingRoomBookingApiFactory
         }
 
         DeleteDatabaseFile(
-            databasePath);
+            DatabasePath);
 
         DeleteDatabaseFile(
-            $"{databasePath}-shm");
+            $"{DatabasePath}-shm");
 
         DeleteDatabaseFile(
-            $"{databasePath}-wal");
+            $"{DatabasePath}-wal");
 
         if (Directory.Exists(BackupDirectory))
         {

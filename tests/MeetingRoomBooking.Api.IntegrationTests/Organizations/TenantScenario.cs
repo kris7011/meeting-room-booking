@@ -42,6 +42,10 @@ public sealed class TenantScenario
     public TestTimeProvider Clock =>
         baseFactory.Clock;
 
+    /// <summary>The scenario's SQLite file, which the API keeps open in WAL mode.</summary>
+    public string DatabasePath =>
+        baseFactory.DatabasePath;
+
     public string OwnerToken { get; } =
         TokenFor("oid-owner", "owner@example.com", name: "Olivia Owner");
 
