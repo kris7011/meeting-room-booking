@@ -22,8 +22,10 @@ Constraints:
   copy even while the API runs, then verify it: `PRAGMA integrity_check` and
   an identical row count per table.
 - **Restore only into a new file.** Refuse if the destination or a leftover
-  `-wal`/`-shm` file exists; copy into a temporary file; verify again; switch
-  to WAL mode; then `File.Move` without overwrite.
+  `-wal`/`-shm` file exists; copy into a temporary file; switch it to WAL
+  mode; verify it again (integrity, foreign keys, row counts), so the file
+  that is verified is the one that is moved; then `File.Move` without
+  overwrite.
 - Expose both as a small .NET console tool that reuses the API's own code,
   with thin PowerShell wrappers. `Start-Local.ps1` starts the API on an
   explicit database file and refuses a missing one unless `-InitializeEmpty`

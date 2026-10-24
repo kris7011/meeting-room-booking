@@ -17,7 +17,7 @@ The mobile client has its own walkthrough in
 | **[Not implemented]** | Proposed or future work. Nothing in the code does this yet. |
 
 Last reviewed: 2026-10-24, against branch `feature/phase4a-portable-local-backup`
-(commit `dbe2a31`).
+(commit `6c8e6dd`).
 
 ---
 
@@ -417,7 +417,7 @@ outside it.
 | Restore into a **new** file only: `scripts/Restore-Local.ps1` → `restore` | [In review], tested |
 | Start the API on a chosen database file: `scripts/Start-Local.ps1` | [In review], manually tested |
 | API on a restored file still enforces sign-in and tenant boundaries | [In review], tested (`RestoredDatabaseApiTests`) |
-| Recovery test with a copy of the real development data | [Manual], 2026-10-24 (see [local-portability.md](local-portability.md#recovery-test-on-a-copy-of-the-real-data-2026-10-24)) |
+| Recovery test with a copy of the real development data | [Manual], 2026-10-24 (see [local-portability.md](local-portability.md#recovery-test-on-a-copy-of-the-real-data-2026-10-24)), including invariant and WAL-only-commit checks on copies ([follow-up](local-portability.md#follow-up-checks-on-the-same-copies-2026-10-24)) |
 | Automatic scheduled or off-site backups | [Not implemented] |
 | Export/import between different database engines | [Not implemented] |
 
