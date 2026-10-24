@@ -59,7 +59,7 @@ src/MeetingRoomBooking.Api/
     BookingDbContext.cs           EF Core model: tables, keys, check constraints, indexes
     Migrations/                   Schema history (EF Core), including SQL triggers
     DatabaseInitializer.cs        Start-up: backup → migrate → verify invariants
-    DatabaseBackup.cs             Verified VACUUM INTO snapshots
+    DatabaseBackup.cs             Verified backups: one snapshot, copied and fingerprinted
     DatabasePortability.cs        Manual backup and restore-to-new-file   [In review]
   Features/                       One folder per feature: entity, contracts, endpoints, service
     Authentication/               Entra token validation
@@ -274,9 +274,9 @@ visible in the calling code. Switching database provider, or passing
 `DatabaseInitializer.InitialiseAsync` runs before the API accepts requests:
 
 1. If migrations are pending and the database file already has data, it takes
-   a verified backup first (`DatabaseBackup.CreateVerifiedAsync`:
-   `VACUUM INTO`, `PRAGMA integrity_check`, identical row count per table).
-   If the backup fails, nothing is migrated.
+   a verified backup first (`DatabaseBackup.CreateVerifiedAsync`, see
+   [section 11](#11-backup-and-restoration)). If the backup fails, nothing is
+   migrated and no backup file is left behind.
 2. A non-empty file **without** migration history is refused untouched: its
    schema is unknown.
 3. After migrating, `VerifyAsync` checks foreign keys, integrity and that all
@@ -353,13 +353,14 @@ and carry a stable `code` extension (for example `booking_overlap`,
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
 | Migrations | Databases built from older schemas with raw SQL, then migrated; data, IDs and triggers checked | `Migrations/*` |
 | Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [In review] |
+| Backup under writes | Repeated backups and restores while another connection commits bookings; a commit exactly between snapshot and copy; a saved but uncommitted booking; clean-up after a failed backup; no overwrite; fingerprints | `DatabaseBackupConcurrencyTests`, `DatabaseBackupTests` [In review] |
 | Restored API | Two-tenant data backed up while the API runs, restored, and served by a second API: same rows, 401 without a valid token, 404 for non-members, roles intact, original unchanged | `RestoredDatabaseApiTests` [In review] |
 | Safety | `TestDatabaseGuard` refuses any database outside the temp folder or inside the API project | `TestDatabaseGuard` |
 | Web client | Angular service and component tests (Vitest), run in CI | `src/meeting-room-booking-web` |
 | End to end | The mobile repository's Playwright suite starts this API on a temporary database | room-booking-mobile `e2e/` |
 
-On 2026-10-24 the backend suite had **295 passing tests** on the Phase 4A
-branch (`dotnet test`, Release).
+On 2026-10-24 the backend suite had **303 passing tests** on the Phase 4A
+branch (`dotnet test`, Release, Windows).
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
 device, production configuration, and performance under load.
@@ -425,21 +426,48 @@ How restore protects data (`DatabasePortability.RestoreToNewAsync`):
 
 1. Refuses if source equals destination, or if the destination or a leftover
    `-wal`/`-shm` file exists.
-2. Verifies the backup (`integrity_check`, `foreign_key_check`) and counts rows.
+2. In one read transaction on the backup, verifies it (`integrity_check`,
+   `foreign_key_check`) and fingerprints it (see below).
 3. Copies with SQLite's backup API into a temporary file next to the
    destination, and switches it to WAL mode like the API's own databases.
-4. Verifies the copy again (integrity, foreign keys, identical row counts).
+4. Verifies the copy again (integrity, foreign keys, identical fingerprints).
 5. `File.Move` without overwrite: atomic on the same volume, and it fails
    rather than replace a file that appeared in the meantime.
 
-**How a backup is made** (`DatabasePortability.BackupAsync` →
-`DatabaseBackup.CreateVerifiedAsync`): the source is opened **read-only**, and
-`VACUUM INTO $path` writes a consistent, compacted snapshot to a new file
-named `<database>.manual-<UTC timestamp>.db`. Because the snapshot comes from
-SQLite itself, commits that still sit in the `-wal` file are included, which
-a plain file copy of a running database would miss. The snapshot is then
-checked with `PRAGMA integrity_check` and compared table by table with the
-source's row counts.
+**How a backup is made** (`DatabasePortability.BackupAsync` and the API's
+start-up both call `DatabaseBackup.CreateVerifiedAsync`) [In review]:
+
+1. The source is opened **read-only**, and a deferred read transaction
+   (`BeginTransaction(deferred: true)`) is started on it. SQLite fixes that
+   transaction's snapshot at its first read and keeps it until it ends, even
+   while the API commits more bookings (WAL mode).
+2. Inside that transaction, `FingerprintAsync` records each table's row count
+   and an order-independent hash of its rows (the sum of truncated SHA-256
+   row hashes), plus the same for the schema (`sqlite_master`, so indexes and
+   triggers are compared too) and `sqlite_sequence` (the AUTOINCREMENT
+   counters).
+3. Still inside it, `SqliteConnection.BackupDatabase` (SQLite's online backup
+   API) copies **that same snapshot** into `<backup>.partial-<id>.tmp`, which
+   is then switched to a rollback journal so that the backup is one
+   self-contained file.
+4. The copy must pass `PRAGMA integrity_check` and `PRAGMA foreign_key_check`
+   and have exactly the fingerprints from step 2.
+5. Only then does `File.Move` (no overwrite) give it its final name
+   `<database>.manual-<UTC timestamp>.db` (or `.pre-<migration>-…`). On any
+   failure, `finally` deletes the temporary file and its own sidecars, nothing
+   else.
+
+Because the copy and the reference values come from one snapshot, a booking
+committed during the backup can neither be half-included nor make
+verification fail. Commits that still sit in the `-wal` file are included,
+which a plain file copy of a running database would miss.
+
+Earlier versions used `VACUUM INTO`, which also writes a consistent snapshot,
+but SQLite refuses to run it inside a transaction ("cannot VACUUM from within
+a transaction"). Its snapshot and the row counts it was compared with were
+therefore taken at different moments, and a booking committed in between
+produced a false "does not have the same rows" failure. The reasoning is in
+[ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 
 **Why restore never overwrites.** A restore is only ever needed when something
 has gone wrong, which is also when a mistake is most likely: the wrong file
@@ -480,12 +508,11 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 - **No deployment or production configuration in the repository.**
 - **Restore does not check versions.** A backup made by a newer API version
   can be restored and started by an older one; nothing warns about it.
-- **Backup verification can fail while the API writes.** `VACUUM INTO` and
-  the source row count are separate statements, so a booking committed
-  between them makes the counts differ. The result is a reported failure, not
-  a bad backup, but the unverified file is left in the backup folder.
-  Proposed fix [Not implemented]: compare against counts taken from the same
-  read snapshot, and delete the file when verification fails.
+- **A killed backup can leave a `*.partial-<id>.tmp` file.** It never has a
+  backup's name and is safe to delete. Backups are not compacted (the backup
+  API copies pages as they are, unlike `VACUUM INTO`).
+- **The backup fingerprint is not tamper-proof.** It detects an incomplete or
+  accidentally different copy, not a deliberately crafted one.
 - **One `Start-Local.ps1` per checkout.** It builds Debug in place, and a
   running instance locks the output, so a second instance fails at the build.
 - **No account linking**, no audit-log endpoint, no pagination, no general

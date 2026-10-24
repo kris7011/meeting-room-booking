@@ -18,12 +18,16 @@ Constraints:
 ## Decision
 
 - Keep **SQLite** as the database; the whole state is one file.
-- **Backup** with `VACUUM INTO`, which writes a transactionally consistent
-  copy even while the API runs, then verify it: `PRAGMA integrity_check` and
-  an identical row count per table.
+- **Backup from one read snapshot.** Open the source read-only, start a
+  deferred read transaction, fingerprint every table and the schema (row
+  count and an order-independent content hash), and copy that same snapshot
+  with SQLite's online backup API into a temporary file. Verify the copy
+  (`PRAGMA integrity_check`, `PRAGMA foreign_key_check`, identical
+  fingerprints) and only then move it to its final name without overwrite.
+  On failure, delete only that temporary file.
 - **Restore only into a new file.** Refuse if the destination or a leftover
   `-wal`/`-shm` file exists; copy into a temporary file; switch it to WAL
-  mode; verify it again (integrity, foreign keys, row counts), so the file
+  mode; verify it again (integrity, foreign keys, fingerprints), so the file
   that is verified is the one that is moved; then `File.Move` without
   overwrite.
 - Expose both as a small .NET console tool that reuses the API's own code,
@@ -36,6 +40,9 @@ Constraints:
 | Alternative | Why not |
 | --- | --- |
 | Copying the `.db` file | Unsafe while the API runs: committed data may still be only in the `-wal` file. |
+| `VACUUM INTO`, then compare with the source's row counts (the first implementation) | The copy is consistent, but SQLite cannot run `VACUUM INTO` inside a transaction, so the counts come from a later moment. A booking committed in between causes a false verification failure. |
+| `VACUUM INTO` and verify the copy only on its own (integrity, foreign keys) | No false failures, but nothing shows the copy holds the data the source had. |
+| `VACUUM INTO` and retry while `PRAGMA data_version` changes | Works, but under steady writes it may never succeed, and the retry logic is harder to reason about. |
 | JSON/CSV export and import | Engine-independent, but must be kept in sync with every schema change, and loses triggers and constraints unless re-created. |
 | Restore in place (overwrite) | One mistake destroys the only good copy. |
 | Move to PostgreSQL in Docker now | Better concurrency, but adds a server to run and back up, and is not needed for a single-site deployment. |
@@ -48,9 +55,16 @@ Constraints:
   start-up checks as any other (covered by `DatabasePortabilityTests`), and an
   API started on it keeps tenant data and access rules
   (`RestoredDatabaseApiTests`).
-- Negative: the row-count verification is a separate statement from the
-  snapshot, so a backup taken while the API writes can fail verification and
-  must be repeated.
+- Positive: a backup taken while the API writes is verified against exactly
+  the data it contains, so concurrent bookings never cause a false failure
+  (`DatabaseBackupConcurrencyTests`), and a failed backup leaves no file.
+- Negative: backups are not compacted, and fingerprinting reads every row
+  once more. Both are negligible at this data size.
+- Negative: on a database in rollback-journal mode, the read transaction
+  makes writers wait until the backup ends. The API's databases use WAL.
+- Negative: an `internal` test hook in `CreateVerifiedAsync` (visible to the
+  test project only) exists to commit at the exact moment between snapshot
+  and copy.
 - Negative: SQLite-specific. A hosted deployment on another engine would need
   its own export/import path.
 - Negative: no automatic schedule or off-site copy; backups are manual.
