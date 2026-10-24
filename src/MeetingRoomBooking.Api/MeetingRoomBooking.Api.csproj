@@ -20,4 +20,9 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- For the test hook on DatabaseBackup.CreateVerifiedAsync. -->
+    <InternalsVisibleTo Include="MeetingRoomBooking.Api.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

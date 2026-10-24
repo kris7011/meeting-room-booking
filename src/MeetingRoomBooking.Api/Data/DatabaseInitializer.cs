@@ -87,7 +87,7 @@ public static class DatabaseInitializer
                     await DatabaseBackup.CreateVerifiedAsync(
                         databaseFile!,
                         backupDirectory,
-                        pendingMigrations[0],
+                        $"pre-{pendingMigrations[0]}",
                         timeProvider,
                         cancellationToken);
 

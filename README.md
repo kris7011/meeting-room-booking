@@ -337,11 +337,22 @@ Rules that the service layer must enforce when the endpoints arrive, because the
 - An Owner whose user account is disabled still counts as an Owner for the database rule; the service decides how to treat disabled Owners.
 - Audit `Details` must never contain access tokens, invitation tokens or token hashes.
 
+## Local operation and cloud exit (phase 4A)
+
+To start the signed-in .NET API locally, create a verified manual SQLite
+backup, or safely restore a cloud snapshot into a **new database file**, use
+the PowerShell scripts in `scripts/` and the instructions in
+[Local portability and recovery](docs/local-portability.md).
+
+Existing database files are never overwritten by the restore tool. Microsoft
+login still requires internet access to Entra. Selecting the server at runtime
+inside an installed Android release is a separate mobile feature.
+
 ## Database backup and restore
 
 > **Before the first start after updating:** a normal start of the API (`dotnet run`, or starting it from an IDE) **automatically migrates the existing database** it is configured to use, for example `src/MeetingRoomBooking.Api/meeting-room-booking.db`. The first start after the organisation changes rebuilds the `MeetingRooms` and `Bookings` tables. Make your own separate backup first: stop the API and copy the database file, together with any `-wal` and `-shm` files, to a folder outside the repository. The automatic backup described below is an extra safeguard, not a replacement for your own copy.
 
-Before the API applies pending migrations to an existing database, it writes a backup with SQLite's `VACUUM INTO` and verifies it (`PRAGMA integrity_check` and the same row count in every table). If the backup cannot be written or verified, the API stops without migrating. After migrating, it checks foreign keys, integrity and the two booking overlap triggers, and refuses to start if any check fails. A brand-new database is not backed up.
+Before the API applies pending migrations to an existing database, it writes a backup and verifies it: the copy and a fingerprint of every table (row count and content hash) come from one read-transaction snapshot, and the copy must pass `PRAGMA integrity_check` and `PRAGMA foreign_key_check` and match those fingerprints. If the backup cannot be written or verified, the API stops without migrating. After migrating, it checks foreign keys, integrity and the two booking overlap triggers, and refuses to start if any check fails. A brand-new database is not backed up.
 
 If the database file is not empty but has no Entity Framework Core migration history (the `__EFMigrationsHistory` table is missing or empty), the API cannot know which schema the file has. It then stops with an error before migrating or backing up, and leaves the file unchanged so it can be inspected by hand. To start with an empty database instead, point `ConnectionStrings:BookingDatabase` at a new file.
 
