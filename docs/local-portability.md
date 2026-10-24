@@ -145,5 +145,45 @@ to an unencrypted HTTP address on Wi-Fi.
   database copies as though they shared updates.
 - Microsoft Entra is an external identity provider. Fully offline
   sign-in is a separate project.
-- A Windows/PowerShell recovery test with a **copy** of the real data
-  is still necessary. CI runs against isolated test databases only.
+- Run one `Start-Local.ps1` per checkout at a time. It builds the API in
+  Debug in place, and a running instance locks
+  `bin\Debug\net10.0\MeetingRoomBooking.Api.exe`, so a second start fails
+  at the build step (MSB3027) before any database is opened. Stop the
+  first API, or start the second from another checkout.
+- A backup taken while the API is writing can fail verification with
+  "does not have the same rows": the snapshot and the row count of the
+  source are two separate statements, and a booking saved between them
+  changes the count. Nothing is lost, the failure is reported, but the
+  unverified file stays in the backup folder. Delete it and run the backup
+  again, ideally with the API stopped.
+- Backing up a WAL-mode database opens it read-only, and SQLite then
+  leaves empty `-wal`/`-shm` files next to the source. They are harmless;
+  the database file itself is not changed.
+- `Backup-Local.ps1`, `Restore-Local.ps1` and `Start-Local.ps1` use
+  Windows paths and are tested on Windows PowerShell 5.1 only. CI covers
+  the backup and restore code itself (`DatabasePortabilityTests`,
+  `RestoredDatabaseApiTests`) on isolated test databases.
+
+## Recovery test on a copy of the real data (2026-10-24)
+
+Run on Windows PowerShell 5.1 against a file **copy** of the development
+database; the original's SHA-256 was the same before and after.
+
+- `Backup-Local.ps1` produced a verified `manual` backup, and
+  `Restore-Local.ps1` restored it into a new file. Restoring again onto
+  that file, or onto the development database path, was refused and left
+  both files unchanged.
+- The restored file matched the copy row for row in every table
+  (organizations, meeting rooms, bookings, memberships, users,
+  invitations, audit events, migration history), with the same schema,
+  all 7 migrations, the 4 integrity triggers, `integrity_check` = ok, no
+  foreign-key violations, and WAL journal mode.
+- The API started on the restored file without migrating or taking a
+  start-up backup. Another `Start-Local.ps1` API was already running, so
+  this one was built into a separate folder and started with exactly the
+  settings `Start-Local.ps1` sets (see the first limitation above). Every protected endpoint answered 401 without a token
+  and with a malformed, unsigned (`alg: none`), HS256 or foreign-key RS256
+  token.
+- **Not covered:** a signed-in request with a real Microsoft token, which
+  needs an interactive Microsoft sign-in on the phone. The signed-in
+  paths are covered by the integration tests with a test signing key.
