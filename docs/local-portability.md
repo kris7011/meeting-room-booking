@@ -75,9 +75,17 @@ if the API uses another database:
 .\scripts\Backup-Local.ps1 -DatabaseFile "C:\RoomBooking\data\restored.db" -BackupDirectory "D:\Backups\RoomBooking"
 ```
 
-The tool uses SQLite `VACUUM INTO`, verifies database integrity, and
-compares row counts for every table against the source. Failures are
-reported instead of claiming that the backup succeeded. The filename
+The tool opens the database read-only and starts one read transaction.
+Inside it, the tool records a fingerprint of every table and of the
+schema (row count and a hash of the rows' contents), then copies that
+same snapshot with SQLite's online backup API. Bookings committed by the
+running API meanwhile are not in this backup, and they cannot make its
+verification fail. The copy must then pass `PRAGMA integrity_check` and
+`PRAGMA foreign_key_check` and have the same fingerprints. It is written
+under a temporary `.partial-<id>.tmp` name and gets its final name only
+once verified, so a failed backup leaves no file behind and an existing
+file is never replaced. Failures are reported instead of claiming that
+the backup succeeded. The filename
 format is `<database-name>.manual-<UTC-timestamp>.db`; the API's own
 automatic backups before a migration are named
 `<database-name>.pre-<migration>-<UTC-timestamp>.db`.
@@ -104,8 +112,9 @@ The tool:
 1. Checks `PRAGMA integrity_check` and `PRAGMA foreign_key_check`.
 2. Creates a SQLite copy in a temporary file.
 3. Switches the copy to WAL journal mode, like the databases the API
-   creates (`VACUUM INTO` backups use a rollback journal).
-4. Verifies integrity and row counts across all tables again.
+   creates (backups use a rollback journal, so each is a single file).
+4. Verifies integrity, foreign keys and the fingerprint of every table
+   and of the schema again.
 5. Moves the copy into place only if neither the destination nor a
    leftover `-wal`/`-shm` file of that name exists.
 
@@ -150,12 +159,15 @@ to an unencrypted HTTP address on Wi-Fi.
   `bin\Debug\net10.0\MeetingRoomBooking.Api.exe`, so a second start fails
   at the build step (MSB3027) before any database is opened. Stop the
   first API, or start the second from another checkout.
-- A backup taken while the API is writing can fail verification with
-  "does not have the same rows": the snapshot and the row count of the
-  source are two separate statements, and a booking saved between them
-  changes the count. Nothing is lost, the failure is reported, but the
-  unverified file stays in the backup folder. Delete it and run the backup
-  again, ideally with the API stopped.
+- A backup taken while the API is writing contains the bookings
+  committed before its snapshot, not those after it. The API's databases
+  use WAL mode, so the backup does not block bookings. A database in
+  rollback-journal mode would make writers wait until the backup's read
+  transaction ends.
+- If the backup process is killed, a `*.partial-<id>.tmp` file can stay
+  in the backup folder. It is never a verified backup; delete it.
+- The fingerprint is a sum of truncated SHA-256 row hashes. It detects an
+  accidentally different or incomplete copy, not deliberate tampering.
 - Backing up a WAL-mode database opens it read-only, and SQLite then
   leaves empty `-wal`/`-shm` files next to the source. They are harmless;
   the database file itself is not changed.
@@ -218,3 +230,20 @@ used a script outside the repository and are not automated tests.
 - The original development database and the safety copy taken before
   the review still had the SHA-256 recorded before any Phase 4A test.
 - `dotnet test` on Windows: 295/295 passed on `dbe2a31`.
+
+### Backup during concurrent writes (2026-10-24)
+
+The earlier backup ran `VACUUM INTO` and then counted the source's rows in
+separate statements. `DatabaseBackupConcurrencyTests` reproduced the false
+failure on that code ("does not have the same rows" while a second
+connection committed bookings). The backup now fingerprints and copies
+one read-transaction snapshot (see above).
+
+- Automated (`DatabaseBackupConcurrencyTests`, `DatabaseBackupTests`):
+  repeated backups and restores while bookings are committed, a booking
+  committed exactly between snapshot and copy, a booking saved but not
+  yet committed, clean-up after a failed backup, and no overwriting of an
+  existing file. `dotnet test` on Windows: 303/303 passed.
+- By hand, on a file copy of the development database: `backup` and
+  `restore` with `RoomBooking.DatabaseTool` succeeded; the backup was a
+  single file, and the original's SHA-256 was unchanged.
