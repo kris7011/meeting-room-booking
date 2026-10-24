@@ -187,3 +187,34 @@ database; the original's SHA-256 was the same before and after.
 - **Not covered:** a signed-in request with a real Microsoft token, which
   needs an interactive Microsoft sign-in on the phone. The signed-in
   paths are covered by the integration tests with a test signing key.
+
+### Follow-up checks on the same copies (2026-10-24)
+
+Two gaps in the test above were closed by hand, again only on copies
+(the restored file from the test above, copied once more). These checks
+used a script outside the repository and are not automated tests.
+
+- **Invariants still enforce, not just exist.** On a throwaway copy of
+  the restored file, inside a transaction that was rolled back, the
+  database refused: an overlapping booking (same slot and partial
+  overlap, `booking_overlap`), an update that moves a booking onto
+  another, a booking that ends before it starts (`CK_Bookings_TimeRange`),
+  a booking in one organisation for another organisation's room
+  (composite foreign key), and deleting or demoting an organisation's
+  only Owner (`last_owner`). A booking that starts when another ends was
+  accepted. The copy was unchanged afterwards. Both memberships in this
+  data are sole Owners, so the role check constraint could not be
+  isolated here; the last-owner trigger rejects that write first.
+- **Commits that are only in the WAL are captured on real data.** In the
+  test above, the copy's WAL was empty. Here, a booking was committed to
+  a copy of the restored file and the connection kept open without a
+  checkpoint, like a running API: the row existed only in the `-wal`
+  file (the main file was byte-for-byte unchanged, and a copy of the main
+  file alone did not contain it). `RoomBooking.DatabaseTool backup` and
+  `restore` then produced a backup and a new database that both
+  contained the row; the restored file was a single file in WAL mode,
+  `integrity_check` = ok, and identical in schema and content to the
+  source once that was closed.
+- The original development database and the safety copy taken before
+  the review still had the SHA-256 recorded before any Phase 4A test.
+- `dotnet test` on Windows: 295/295 passed on `dbe2a31`.
