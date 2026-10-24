@@ -20,7 +20,7 @@ public static class DatabasePortability
         }
 
         // Reuse the existing snapshot + integrity and per-table-count checks.
-        // The name clearly distinguishes manual backups from migration backups.
+        // "manual" distinguishes these from the API's "pre-<migration>" backups.
         return DatabaseBackup.CreateVerifiedAsync(
             source,
             Path.GetFullPath(backupDirectory),
@@ -74,7 +74,14 @@ public static class DatabasePortability
             {
                 // SQLite snapshots the source correctly even in WAL mode.
                 source.BackupDatabase(temporary);
+
+                // VACUUM INTO backups use a rollback journal, and the backup API
+                // copies that. The API's own databases use WAL (EF Core creates
+                // them so), which lets reads continue while a booking is written.
+                await SetWalJournalModeAsync(temporary, cancellationToken);
             }
+            // Closing the last connection checkpointed and removed the WAL, so
+            // the single temporary file holds every page that is moved below.
 
             await using (var copy = Open(temporaryPath, SqliteOpenMode.ReadOnly))
             {
@@ -109,6 +116,17 @@ public static class DatabasePortability
         }.ToString());
         connection.Open();
         return connection;
+    }
+
+    private static async Task SetWalJournalModeAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var journalMode = connection.CreateCommand();
+        journalMode.CommandText = "PRAGMA journal_mode = WAL";
+        var result = await journalMode.ExecuteScalarAsync(cancellationToken) as string;
+        if (!string.Equals(result, "wal", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Could not switch the restored database to WAL mode ({result}).");
+        }
     }
 
     private static async Task VerifyAsync(SqliteConnection connection, CancellationToken cancellationToken)

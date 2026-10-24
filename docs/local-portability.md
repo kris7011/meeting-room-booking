@@ -59,7 +59,9 @@ after a verified migration backup.
 
 ## Create a manually verified backup
 
-Prefer stopping the API first, so there are no active writes:
+The snapshot is consistent even while the API runs, but bookings made
+after it are not included. For a final backup (for example before
+cancelling hosting), stop the API first:
 
 ```powershell
 .\scripts\Backup-Local.ps1
@@ -76,7 +78,9 @@ if the API uses another database:
 The tool uses SQLite `VACUUM INTO`, verifies database integrity, and
 compares row counts for every table against the source. Failures are
 reported instead of claiming that the backup succeeded. The filename
-format is `<database-name>.pre-manual-<UTC-timestamp>.db`.
+format is `<database-name>.manual-<UTC-timestamp>.db`; the API's own
+automatic backups before a migration are named
+`<database-name>.pre-<migration>-<UTC-timestamp>.db`.
 
 Also keep a verified copy on another physical drive or at a secure
 location **outside the hosting provider's account**. Backups retained
@@ -91,7 +95,7 @@ deployment will need a separate, documented export/import workflow.
 
 ```powershell
 .\scripts\Restore-Local.ps1 `
-  -BackupFile "D:\Backups\RoomBooking\meeting-room-booking.pre-manual-20261023T120000000Z.db" `
+  -BackupFile "D:\Backups\RoomBooking\meeting-room-booking.manual-20261023T120000000Z.db" `
   -DestinationFile "C:\RoomBooking\data\from-cloud.db"
 ```
 
@@ -99,8 +103,11 @@ The tool:
 
 1. Checks `PRAGMA integrity_check` and `PRAGMA foreign_key_check`.
 2. Creates a SQLite copy in a temporary file.
-3. Verifies row counts across all tables.
-4. Moves the copy into place only if the destination **does not exist**.
+3. Switches the copy to WAL journal mode, like the databases the API
+   creates (`VACUUM INTO` backups use a rollback journal).
+4. Verifies integrity and row counts across all tables again.
+5. Moves the copy into place only if neither the destination nor a
+   leftover `-wal`/`-shm` file of that name exists.
 
 An existing database is never overwritten. Always choose a new
 destination filename. Then run

@@ -41,11 +41,16 @@ public static class DatabaseBackup
     /// integrity check "ok" and the same number of rows in every table.
     /// Throws if either fails; the original is only ever read.
     /// </summary>
+    /// <param name="label">
+    /// Why the backup was taken, part of its file name
+    /// (<c>&lt;database&gt;.&lt;label&gt;-&lt;UTC timestamp&gt;.db</c>), for example
+    /// <c>pre-&lt;first pending migration&gt;</c> or <c>manual</c>.
+    /// </param>
     /// <returns>The path of the verified backup.</returns>
     public static async Task<string> CreateVerifiedAsync(
         string databaseFile,
         string? backupDirectory,
-        string firstPendingMigration,
+        string label,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
@@ -62,7 +67,7 @@ public static class DatabaseBackup
             Path.Combine(
                 directory,
                 $"{Path.GetFileNameWithoutExtension(databaseFile)}" +
-                $".pre-{firstPendingMigration}" +
+                $".{label}" +
                 $"-{timeProvider.GetUtcNow():yyyyMMdd'T'HHmmssfff'Z'}.db");
 
         IReadOnlyDictionary<string, long> sourceCounts;
