@@ -53,6 +53,15 @@ Follow existing project conventions unless there is a documented, reviewable rea
 - Prefer small, focused PRs with an English summary, rationale, risk/rollback notes for database work, and explicit test evidence. Never claim a check passed unless it actually ran.
 - Leave unrelated changes untouched; do not force-reset, discard local work, merge, or deploy without authorization.
 
+## Technical understanding (part of the Definition of Done)
+
+The repository owner must be able to explain, demonstrate, troubleshoot, and defend every important part of this system.
+
+- When implementing or significantly changing a feature, give the owner a walkthrough: the problem solved, how it works, the files/classes/methods involved, the request and data flow, why this design was chosen over alternatives, how authentication, authorization, validation, and security are handled, how it is tested, and its failure modes and limitations. Reference real code; never invent details or claim untested behavior is tested.
+- Keep [`docs/PROJECT_WALKTHROUGH.md`](docs/PROJECT_WALKTHROUGH.md) accurate in the same PR as the change, using its status labels (Tested, Manual, In review, Not implemented).
+- Record significant architectural decisions as short ADRs in [`docs/adr/`](docs/adr/README.md). Avoid documentation that nobody needs.
+- Be transparent about AI assistance: keep `Co-Authored-By` trailers on AI-assisted commits, and never present AI-generated code as hand-written.
+
 ## Operations and portability
 
 - The user must be able to run the **same .NET API and recover SQLite data locally**, even if paid hosting is cancelled.

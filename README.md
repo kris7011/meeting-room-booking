@@ -52,64 +52,7 @@ The application supports:
 
 ## Project structure
 
-```text
-meeting-room-booking/
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-│
-├── src/
-│   ├── MeetingRoomBooking.Api/
-│   │   ├── Data/
-│   │   │   ├── Migrations/
-│   │   │   ├── BookingDbContext.cs
-│   │   │   └── DatabaseExtensions.cs
-│   │   │
-│   │   ├── Features/
-│   │   │   ├── Bookings/
-│   │   │   │   ├── Booking.cs
-│   │   │   │   ├── BookingContracts.cs
-│   │   │   │   ├── BookingEndpoints.cs
-│   │   │   │   └── BookingService.cs
-│   │   │   │
-│   │   │   └── Rooms/
-│   │   │       ├── MeetingRoom.cs
-│   │   │       └── RoomEndpoints.cs
-│   │   │
-│   │   ├── MeetingRoomBooking.Api.http
-│   │   └── Program.cs
-│   │
-│   └── meeting-room-booking-web/
-│       ├── .postcssrc.json
-│       ├── proxy.conf.json
-│       ├── package.json
-│       │
-│       └── src/
-│           ├── app/
-│           │   ├── core/
-│           │   │   ├── models/
-│           │   │   └── services/
-│           │   │
-│           │   ├── app.ts
-│           │   ├── app.html
-│           │   ├── app.css
-│           │   └── app.spec.ts
-│           │
-│           └── styles.css
-│
-├── tests/
-│   └── MeetingRoomBooking.Api.IntegrationTests/
-│
-├── global.json
-├── MeetingRoomBooking.sln
-├── .gitignore
-└── README.md
-```
-
-The backend uses a feature oriented structure. Code related to bookings is kept together instead of being distributed across large technical folders.
-
-The frontend keeps shared API models and services inside the `core` folder, while application state and user-interface behaviour are handled by the root Angular component.
+The backend is organised by feature (`src/MeetingRoomBooking.Api/Features/Bookings`, `Organizations`, `Rooms`, `Users`, `Authentication`, `Audit`), with persistence in `Data/`. The Angular client is in `src/meeting-room-booking-web`, the integration tests in `tests/`, and the Phase 4A database tool in `tools/`. [docs/PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md) explains the structure, the request flow and the design decisions in detail; [docs/adr](docs/adr/README.md) records the main architectural decisions.
 
 ## Domain model
 
@@ -314,7 +257,7 @@ The database schema is recreated from Entity Framework Core migrations, and the 
 
 Every meeting room belongs to an organisation, and a booking always belongs to its room's organisation; the database enforces this with a foreign key on `(OrganizationId, RoomId)`. All rooms and bookings that existed before organisations were introduced live, unchanged and with their original IDs, in the legacy organisation (ID 1). Nobody becomes a member of it automatically.
 
-`OrganizationId` has no database default: a row that does not name its organisation is rejected. The existing endpoints (`/api/rooms`, `/api/rooms/available`, `/api/bookings`) still need no sign-in and only see the legacy organisation, so data of organisations created later cannot be reached through them. They are not a secure multi-organisation API; that needs the sign-in and organisation-based access control planned for later phases.
+`OrganizationId` has no database default: a row that does not name its organisation is rejected. The original endpoints (`/api/rooms`, `/api/rooms/available`, `/api/bookings`) only see the legacy organisation and require a signed-in member of it, unless the Development-only anonymous demo mode is on; see [The original endpoints](#the-original-endpoints).
 
 ### Identities, memberships, invitations and audit events
 
@@ -488,7 +431,7 @@ dotnet --version
 The output should start with:
 
 ```text
-8.0.
+10.0.
 ```
 
 Verify Node.js:
@@ -819,7 +762,7 @@ dotnet test `
     --no-build
 ```
 
-The backend suite currently contains 217 integration tests.
+The backend suite consists of integration tests against the real application and temporary SQLite databases; see [Testing strategy](#testing-strategy).
 
 ### Frontend
 
@@ -890,7 +833,7 @@ Backend scenarios include:
 - Identities, memberships, invitations and audit events: unique keys, foreign keys, check constraints, the last-Owner triggers, memberships across several organisations, and a migration from the schema of phase 1, PR 1 that keeps every room, booking and overlap trigger.
 - Registration: first registration, repeated registration, 12 parallel first registrations (exactly one user), an existing and a disabled user, invalid and app-only tokens and a missing scope (nothing created), `GET /api/me` creating nothing, the same `oid` in another tenant or as a personal account and the same e-mail on two identities (always separate users), and when an e-mail counts as verified.
 - Organisation access: the configured first legacy Owner (at start-up, never replacing an existing Owner, skipping unknown and disabled users, refusing a value that is not a user ID); invitations only by Owners and Admins (Admins only Members, never Owner); no access without membership; acceptance only with the token and the matching verified e-mail; expiry, revocation by re-inviting, an inviter who lost the right, disabled users, existing members and parallel accepts; no tokens in the database or the audit log.
-- Sign-in: `GET /api/me` with tokens signed by a test key that exists only in the test process (no network, no real tenant): a valid token, both audiences, a linked and a disabled user, the same `oid` in another tenant, and rejection of a missing token, a wrong audience, issuer or tenant, a v1.0 issuer, an expired, unsigned, HMAC-signed or foreign-key-signed token, a signing key published for another tenant, a missing scope and an app-only token. The room endpoints stay anonymous, and invalid `Entra` settings stop the API at start-up.
+- Sign-in: `GET /api/me` with tokens signed by a test key that exists only in the test process (no network, no real tenant): a valid token, both audiences, a linked and a disabled user, the same `oid` in another tenant, and rejection of a missing token, a wrong audience, issuer or tenant, a v1.0 issuer, an expired, unsigned, HMAC-signed or foreign-key-signed token, a signing key published for another tenant, a missing scope and an app-only token. Invalid `Entra` settings stop the API at start-up.
 
 Migration tests build their databases with raw SQL in their own temp folders. A guard stops any test from opening a database outside the system temp folder, and the test host receives its connection string explicitly, so tests can never touch the development database.
 
@@ -999,33 +942,20 @@ Booking times are stored as UTC values to avoid tying stored data to the timezon
 
 ## Current test results
 
-At the time of completion, the project passes:
-
-```text
-Backend:
-217 passed
-0 failed
-
-Frontend:
-8 passed
-0 failed
-```
-
-The Angular production build and the .NET Release build both complete successfully.
+CI runs every test on each pull request and push to `main`; see the [Actions runs](https://github.com/kris7011/meeting-room-booking/actions). The last locally verified counts are recorded in [docs/PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md#9-testing-strategy).
 
 ## Possible improvements
 
 With more development time, the following could be added:
 
-- Organisation-based authorisation on the room and booking endpoints (sign-in and token validation are in place, see above).
 - Calendar style schedule view.
 - Filtering by room or date.
 - Recurring bookings.
 - Pagination.
-- Audit logging.
+- An endpoint for reading audit events (they are recorded, but not exposed).
 - Optimistic concurrency handling.
 - More advanced timezone modelling.
-- End-to-end browser tests.
+- End-to-end browser tests for the Angular client (the mobile repository has Playwright tests against this API).
 - Docker support.
 - Deployment configuration.
 - Structured telemetry.
