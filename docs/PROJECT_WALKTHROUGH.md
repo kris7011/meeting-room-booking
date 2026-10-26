@@ -207,6 +207,15 @@ Every organisation endpoint is mapped inside `MapOrganizationGroup`, under
   crosses the tenant boundary.
 - **Per-object rules** live in the service: `BookingActor.MayModify` lets
   Owners and Admins change any booking, Members only their own.
+- **Changes check again under the write lock.** The filter's `OrganizationCaller`
+  is a snapshot from the start of the request. Every organisation change
+  (rooms, bookings, rename, invitation revoke, roles, removal) first calls
+  `OrganizationAccessService.ReauthorizeAsync` inside its `BEGIN IMMEDIATE`
+  transaction, and the per-object rules use the role read there. If the caller
+  was disabled, removed or demoted meanwhile, it throws
+  `OrganizationAccessDeniedException`; the transaction rolls back and the
+  filter answers exactly as it would have for a later request
+  ([ADR 0004](adr/0004-reauthorize-mutations-under-the-write-lock.md)).
 
 | Role | Rooms and bookings | Administration |
 | --- | --- | --- |
@@ -336,8 +345,9 @@ invitation.
 `MembershipService` changes roles and removes members (the last Owner cannot
 be demoted or removed: service check plus triggers). `RoomAdministrationService`
 creates, edits, archives and restores rooms; rooms are never deleted, and
-archiving is refused while a room has upcoming bookings. All changes write
-audit events (`AuditEventType`). There is **no endpoint to read audit events**
+archiving is refused while a room has upcoming bookings. Both check the
+caller's access again inside their write transaction (section 6). All changes
+write audit events (`AuditEventType`). There is **no endpoint to read audit events**
 yet [Not implemented].
 
 ### Error contract
@@ -356,6 +366,7 @@ and carry a stable `code` extension (for example `booking_overlap`,
 | Authentication | Tokens signed with a test-only RSA key; production validation code otherwise unchanged | `EntraTestTokens`, `CurrentUserEndpointTests` |
 | Time | `TestTimeProvider` replaces `TimeProvider`, so "must start in the future" tests do not decay | `BookingTimeValidationTests` |
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
+| Access revoked mid-request | A real request held after the access filter by a test-only EF Core interceptor (`TransactionGate`) while its caller is disabled, removed or demoted; no timing | `MutationReauthorizationTests` [Tested] |
 | Migrations | Databases built from older schemas with raw SQL, then migrated; data, IDs and triggers checked | `Migrations/*` |
 | Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [Tested] |
 | Backup under writes | Repeated backups and restores while another connection commits bookings; a commit exactly between snapshot and copy; a saved but uncommitted booking; clean-up after a failed backup; no overwrite; fingerprints | `DatabaseBackupConcurrencyTests`, `DatabaseBackupTests` [Tested] |
@@ -368,6 +379,9 @@ The final Phase 4A validation on 2026-10-24 reported **303 passing backend tests
 (`dotnet test`, Release, Windows) at commit `228e1eb`, later merged in PR #13.
 Phase 5A added `RolePermissionMatrixTests`: **309 passing** on 2026-10-26
 (Release, Windows), on `main` at `c2ca321` plus that change.
+Phase 5B added `MutationReauthorizationTests` (33 tests): **342 passing**
+on 2026-10-26 (Release, Windows), on `main` at `9fcd827` plus that change.
+Against `main` without the service changes, 26 of its 32 request tests fail.
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
 device, production configuration, and performance under load.
@@ -499,6 +513,7 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 | SQLite file + verified snapshots, restore to new file only | Runs anywhere without a server; cheap, portable backups | One writer at a time; one API instance; no automatic sync | [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md) |
 | Feature folders | A feature is understood by opening one folder | Shared concerns (`ApiProblems`, `Data`) sit beside features | – |
 | Result enums from services, HTTP mapping in endpoints | Services testable and HTTP-agnostic | Some mapping code per feature | – |
+| Changes reauthorize under the write lock; a lost access is an exception the filter maps | Check and write see the same membership; one mapping for 403/404 | Services depend on the filter to translate it; two extra reads per change | [ADR 0004](adr/0004-reauthorize-mutations-under-the-write-lock.md) |
 | `TimeProvider` injected | Time-dependent rules testable at exact instants | – | – |
 | Identity = issuer + `oid`, never e-mail | E-mail is mutable and not unique across account types | Linking two accounts of one person is not supported yet | – |
 
@@ -525,10 +540,9 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 - **No account linking**, no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
-- **Room and booking changes use the role read at the start of the request.**
-  Only `MembershipService` reads the caller's role again under the write
-  lock, so a request already running when its caller is demoted can still
-  finish; the next one is refused (see
+- **Reads use the access read at the start of the request.** Changes check
+  again under the write lock (Phase 5B); a `GET` running while its caller is
+  removed still returns what they could see a moment earlier (see
   [role-permission-matrix.md](role-permission-matrix.md#known-limitation)).
 
 ## 14. How this project was built

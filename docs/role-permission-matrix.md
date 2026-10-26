@@ -18,6 +18,7 @@ temporary SQLite file with tokens signed by a test-only key
 3. **Membership** (`OrganizationAccessFilter`): not a member, or no such organisation → `404 organization_not_found` (the two are indistinguishable).
 4. **Role** (`OrganizationRoleRequirement` metadata, from `RequireOwnerOrAdmin` / `RequireOrganizationRole`): `403 organization_permission_denied`.
 5. **Per-object rule** in the service (own booking, which invitation role, removing someone else): `403` with a specific code.
+6. **Again under the write lock** (`OrganizationAccessService.ReauthorizeAsync`): every change repeats steps 2–4 inside its `BEGIN IMMEDIATE` transaction, before it reads or writes anything else, and step 5 uses the role read there. A caller disabled, removed or demoted while the request was running gets the same answer as in steps 2–4 and nothing is written ([ADR 0004](adr/0004-reauthorize-mutations-under-the-write-lock.md)).
 
 Roles are read from the database on every request, never from the token.
 `RolePermissionMatrixTests.EveryOrganizationEndpoint_RequiresExactlyTheRolesOfTheMatrix`
@@ -67,13 +68,15 @@ legacy organisation (`OrganizationScopedAccessTests.OriginalEndpoints_RequireALe
 | Member of another organisation using this organisation's room, booking or invitation IDs | `404` (`meeting_room_not_found`, `booking_not_found`, `invitation_not_found`); nothing changed | `OrganizationScopedAccessTests.MemberOfOneOrganization_CannotSeeAnotherOrganizationsRoomsOrBookings`, `…CannotChangeOrDeleteAnotherOrganizationsBookings`, `OrganizationManagementTests.RoomsOfAnotherOrganization_CannotBeManaged`, `MemberManagementTests.InvitationsOfAnotherOrganization_CannotBeRevoked`, `…UsersOutsideTheOrganization_AreNotMembersToChangeOrRemove` |
 | Removed member, same token | `404` at once; their bookings are kept | `MemberManagementTests.Owner_RemovesAMember_WhoLosesAccessButKeepsTheirBookings` |
 | Demoted Admin, same token | Member rights from the next request on | `RolePermissionMatrixTests.DemotedAdmin_LosesTheAdminRightsOnTheNextRequest_WithTheSameToken` |
+| Disabled, removed or demoted **while a change is running** (after the filter, before its transaction) | Same answer as a request sent afterwards (`403 user_disabled`, `404 organization_not_found`, `403 organization_permission_denied` / `booking_permission_denied`); no row and no audit event written | `MutationReauthorizationTests` (rooms ×4 changes ×3 revocations, bookings incl. the original `/api/bookings`, rename, invitation revoke, role change, remove) |
 
 ## Invariants
 
 | Invariant | How | Tests |
 | --- | --- | --- |
 | An organisation always keeps an Owner | Service check plus database triggers `TR_Memberships_LastOwner_*` | `MemberManagementTests.OwnershipIsHandedOver_ByPromotingSomeoneElseFirst` |
-| Two Owners acting on each other at once leave one Owner | `BEGIN IMMEDIATE` serialises the changes; the second sees its own new role | `MemberManagementTests.TwoOwnersRemovingEachOtherAtOnce_LeaveOneOwner`, `RolePermissionMatrixTests.TwoOwnersDemotingEachOtherAtOnce_KeepExactlyOneOwner` |
+| Two Owners acting on each other at once leave one Owner | `BEGIN IMMEDIATE` serialises the changes; the second sees its own new role | `MemberManagementTests.TwoOwnersRemovingEachOtherAtOnce_LeaveOneOwner`, `RolePermissionMatrixTests.TwoOwnersDemotingEachOtherAtOnce_KeepExactlyOneOwner`, `MutationReauthorizationTests.OwnerDemotedByTheOtherOwnerMidRequest_CannotDemoteThemBack` |
+| The access check and the write of a change cannot be separated by another writer | The check runs inside the change's `BEGIN IMMEDIATE` transaction | `MutationReauthorizationTests.ChangeHoldingTheWriteLock_IsWrittenBeforeARevocationCanBegin` |
 | An invitation is accepted only with its token **and** the invited verified e-mail | Token hash lookup, `xms_edov`-verified e-mail compared | `OrganizationAccessTests.VerifiedEmailOfSomeoneElse_CannotAccept`, `…UnverifiedEmail_EvenTheInvitedAddress_CannotAccept`, `…InvitedEmailWithoutTheToken_GivesNoAccess`, `MemberManagementTests.Invitation_ForAnotherAccount_IsRefused_EvenWithTheToken` |
 | Expired, revoked, replaced or used invitations stop working | `410 invitation_expired` / `invitation_no_longer_valid` | `OrganizationAccessTests.ExpiredInvitation_CannotBeAccepted`, `…InvitingAgain_RevokesTheEarlierInvitation`, `…AcceptingTwice_ReturnsTheSameMembership_ButNobodyElseCanUseTheToken`, `MemberManagementTests.RevokedInvitation_CanNoLongerBeAccepted`, `…ExpiredInvitation_IsListedAsExpired_AndRefused` |
 | An invitation dies with its inviter's right to send it | Checked again when accepted | `OrganizationAccessTests.InvitationOfAnInviterWhoLostTheRight_IsNoLongerValid`, `MemberManagementTests.InvitationOfARemovedAdmin_StopsWorking` |
@@ -83,13 +86,13 @@ legacy organisation (`OrganizationScopedAccessTests.OriginalEndpoints_RequireALe
 
 ## Known limitation
 
-The role used for **room administration and booking changes** is the one the
-access filter read when the request started. `MembershipService` reads the
-caller's role again under the write lock, but `RoomAdministrationService` and
-`BookingService` do not. A request that has already passed the filter when a
-concurrent request demotes its caller can therefore still finish; the next
-request is refused. The window is one request long and cannot cross an
-organisation boundary.
+Closed in Phase 5B: until then, room administration, booking changes,
+renaming and invitation revocation used the role the access filter read when
+the request started, so a request already past the filter when its caller was
+demoted or removed could still write. Every organisation change now checks
+again under the write lock (step 6 above). **Reads** still use the snapshot
+from the start of the request: a list fetched while the caller is being
+removed shows what they could see a moment earlier, and changes nothing.
 
 ## Not covered by these tests
 
