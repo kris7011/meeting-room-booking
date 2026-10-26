@@ -147,7 +147,7 @@ public static class BookingEndpoints
             await service.CreateAsync(
                 LegacyOrganization.Id,
                 request,
-                ActorOf(organization),
+                organization.Caller,
                 cancellationToken);
 
         if (HandleMutationFailure(result.Failure, bookingId: null, roomId: request.RoomId) is { } failure)
@@ -186,7 +186,7 @@ public static class BookingEndpoints
                 LegacyOrganization.Id,
                 bookingId,
                 request,
-                ActorOf(organization),
+                organization.Caller,
                 cancellationToken);
 
         if (HandleMutationFailure(result.Failure, bookingId, request.RoomId) is { } failure)
@@ -210,19 +210,12 @@ public static class BookingEndpoints
             await service.DeleteAsync(
                 LegacyOrganization.Id,
                 bookingId,
-                ActorOf(organization),
+                organization.Caller,
                 cancellationToken);
 
         return HandleMutationFailure(failure, bookingId, roomId: 0)
             ?? Results.NoContent();
     }
-
-    // In anonymous demo mode nobody is signed in: changes have no actor.
-    private static BookingActor? ActorOf(
-        CurrentOrganization organization) =>
-        organization.Caller is { } caller
-            ? BookingActor.From(caller)
-            : null;
 
     // Organisation endpoints
 
@@ -306,14 +299,11 @@ public static class BookingEndpoints
             return invalid;
         }
 
-        var actor =
-            BookingActor.From(caller);
-
         var result =
             await service.CreateAsync(
                 caller.OrganizationId,
                 request,
-                actor,
+                caller,
                 cancellationToken);
 
         if (HandleMutationFailure(result.Failure, bookingId: null, roomId: request.RoomId) is { } failure)
@@ -329,7 +319,7 @@ public static class BookingEndpoints
             $"/api/organizations/{caller.OrganizationPublicId}/bookings/{booking.Id}",
             OrganizationBookingResponse.FromBooking(
                 booking,
-                actor));
+                BookingActor.From(caller)));
     }
 
     private static async Task<IResult> UpdateOrganizationBookingAsync(
@@ -352,15 +342,12 @@ public static class BookingEndpoints
             return invalid;
         }
 
-        var actor =
-            BookingActor.From(caller);
-
         var result =
             await service.UpdateAsync(
                 caller.OrganizationId,
                 bookingId,
                 request,
-                actor,
+                caller,
                 cancellationToken);
 
         if (HandleMutationFailure(result.Failure, bookingId, request.RoomId) is { } failure)
@@ -371,7 +358,7 @@ public static class BookingEndpoints
         return Results.Ok(
             OrganizationBookingResponse.FromBooking(
                 GetSuccessfulBooking(result),
-                actor));
+                BookingActor.From(caller)));
     }
 
     private static async Task<IResult> DeleteOrganizationBookingAsync(
@@ -387,7 +374,7 @@ public static class BookingEndpoints
             await service.DeleteAsync(
                 caller.OrganizationId,
                 bookingId,
-                BookingActor.From(caller),
+                caller,
                 cancellationToken);
 
         return HandleMutationFailure(failure, bookingId, roomId: 0)

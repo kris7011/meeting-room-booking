@@ -42,12 +42,13 @@ public sealed record RoomResult(
 
 /// <summary>
 /// Creating, changing, archiving and restoring an organisation's rooms.
-/// Owners and Admins only (the endpoints' role requirement). Rooms are never
-/// deleted: archiving hides a room from searches and new bookings and keeps
-/// its bookings.
+/// Owners and Admins only: the endpoints' role requirement, and again under
+/// the write lock of each change. Rooms are never deleted: archiving hides a
+/// room from searches and new bookings and keeps its bookings.
 /// </summary>
 public sealed class RoomAdministrationService(
     BookingDbContext dbContext,
+    OrganizationAccessService organizationAccess,
     TimeProvider timeProvider)
 {
     public async Task<RoomResult> CreateAsync(
@@ -65,6 +66,8 @@ public sealed class RoomAdministrationService(
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOrAdmin, cancellationToken);
 
         if (await NameTakenAsync(caller.OrganizationId, name, exceptRoomId: null, cancellationToken))
         {
@@ -107,6 +110,8 @@ public sealed class RoomAdministrationService(
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOrAdmin, cancellationToken);
 
         var room =
             await FindAsync(caller.OrganizationId, roomId, cancellationToken);
@@ -158,6 +163,8 @@ public sealed class RoomAdministrationService(
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOrAdmin, cancellationToken);
+
         var room =
             await FindAsync(caller.OrganizationId, roomId, cancellationToken);
 
@@ -206,6 +213,8 @@ public sealed class RoomAdministrationService(
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOrAdmin, cancellationToken);
 
         var room =
             await FindAsync(caller.OrganizationId, roomId, cancellationToken);

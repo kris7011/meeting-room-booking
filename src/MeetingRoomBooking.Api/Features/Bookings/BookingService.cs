@@ -47,6 +47,10 @@ public sealed record BookingMutationResult(
 /// The signed-in member who makes a booking change, from their membership.
 /// Null for the legacy endpoints in anonymous demo mode.
 /// </summary>
+/// <remarks>
+/// For a change, <see cref="BookingService"/> builds it from the membership
+/// as it is under the write lock, not from the request's access snapshot.
+/// </remarks>
 public sealed record BookingActor(
     int UserId,
     MembershipRole Role)
@@ -73,12 +77,14 @@ public sealed record BookingActor(
 /// organisation is simply "not found".
 /// </summary>
 /// <remarks>
-/// Changes run in a <c>BEGIN IMMEDIATE</c> transaction, so the checks (room
-/// still active, no overlap) and the write cannot be interleaved with
-/// another writer. The SQLite overlap triggers stay the final word.
+/// Changes run in a <c>BEGIN IMMEDIATE</c> transaction, so the checks (the
+/// caller's access, room still active, no overlap) and the write cannot be
+/// interleaved with another writer. The SQLite overlap triggers stay the
+/// final word.
 /// </remarks>
 public sealed class BookingService(
     BookingDbContext dbContext,
+    OrganizationAccessService organizationAccess,
     TimeProvider timeProvider)
 {
     private IQueryable<Booking> BookingsOf(
@@ -137,7 +143,7 @@ public sealed class BookingService(
     public async Task<BookingMutationResult> CreateAsync(
         int organizationId,
         SaveBookingRequest request,
-        BookingActor? actor,
+        OrganizationCaller? caller,
         CancellationToken cancellationToken)
     {
         var startUtc =
@@ -159,6 +165,12 @@ public sealed class BookingService(
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var actor =
+            await CurrentActorAsync(
+                organizationId,
+                caller,
+                cancellationToken);
 
         var roomExists =
             await ActiveRoomExistsAsync(
@@ -225,11 +237,17 @@ public sealed class BookingService(
         int organizationId,
         int bookingId,
         SaveBookingRequest request,
-        BookingActor? actor,
+        OrganizationCaller? caller,
         CancellationToken cancellationToken)
     {
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var actor =
+            await CurrentActorAsync(
+                organizationId,
+                caller,
+                cancellationToken);
 
         var booking =
             await BookingsOf(organizationId)
@@ -341,11 +359,17 @@ public sealed class BookingService(
     public async Task<BookingMutationFailure> DeleteAsync(
         int organizationId,
         int bookingId,
-        BookingActor? actor,
+        OrganizationCaller? caller,
         CancellationToken cancellationToken)
     {
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var actor =
+            await CurrentActorAsync(
+                organizationId,
+                caller,
+                cancellationToken);
 
         var booking =
             await BookingsOf(organizationId)
@@ -374,6 +398,36 @@ public sealed class BookingService(
         await transaction.CommitAsync(cancellationToken);
 
         return BookingMutationFailure.None;
+    }
+
+    /// <summary>
+    /// The caller as they are now, under the write lock (null in anonymous
+    /// demo mode). A caller who has since been disabled or removed is refused
+    /// (<see cref="OrganizationAccessDeniedException"/>); a demoted one gets
+    /// the rights of their new role.
+    /// </summary>
+    private async Task<BookingActor?> CurrentActorAsync(
+        int organizationId,
+        OrganizationCaller? caller,
+        CancellationToken cancellationToken)
+    {
+        if (caller is null)
+        {
+            return null;
+        }
+
+        if (caller.OrganizationId != organizationId)
+        {
+            throw new ArgumentException(
+                "The caller is a member of another organisation than the one being changed.",
+                nameof(caller));
+        }
+
+        return BookingActor.From(
+            await organizationAccess.ReauthorizeAsync(
+                caller,
+                OrganizationRoleRequirement.AnyMember,
+                cancellationToken));
     }
 
     private static bool IsOverlapConstraint(

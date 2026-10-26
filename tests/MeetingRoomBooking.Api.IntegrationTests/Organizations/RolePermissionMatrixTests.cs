@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using MeetingRoomBooking.Api.Features.Organizations;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -300,19 +299,6 @@ public sealed class RolePermissionMatrixTests
     }
 
     // Helpers
-
-    /// <summary>The problem body without its per-request trace ID.</summary>
-    private static async Task<string> ProblemWithoutTraceAsync(
-        HttpResponseMessage response)
-    {
-        var problem = await JsonAsync(response);
-
-        return JsonSerializer.Serialize(
-            problem.EnumerateObject()
-                .Where(property => property.Name != "traceId")
-                .OrderBy(property => property.Name, StringComparer.Ordinal)
-                .ToDictionary(property => property.Name, property => property.Value));
-    }
 
     private Task<long> RoleCountAsync(
         Guid userId,
