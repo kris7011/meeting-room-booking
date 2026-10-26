@@ -613,6 +613,8 @@ Every organisation's rooms and bookings are reached through `/api/organizations/
 | The user is a member of that organisation, and it is not deleted | `404 organization_not_found`: an organisation you are not in looks exactly like one that does not exist |
 | The endpoint's role requirement, if it has one | `403 organization_permission_denied` |
 
+Every endpoint, the roles it admits and the tests that prove it are listed in [docs/role-permission-matrix.md](docs/role-permission-matrix.md).
+
 The membership and role are read from the database for every request; nothing in the request body or the token says which organisations someone belongs to. Every query below the filter is limited to the caller's organisation, so a room or booking ID from another organisation is `404 meeting_room_not_found` / `404 booking_not_found`, whether or not it exists. Integer IDs can be guessed, but guessing one never reaches another organisation's data.
 
 | Role | Rooms and bookings |
