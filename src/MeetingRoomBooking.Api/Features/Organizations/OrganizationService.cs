@@ -73,6 +73,7 @@ public sealed record OrganizationResult(
 /// </summary>
 public sealed class OrganizationService(
     BookingDbContext dbContext,
+    OrganizationAccessService organizationAccess,
     TimeProvider timeProvider,
     ILogger<OrganizationService> logger)
 {
@@ -314,7 +315,7 @@ public sealed class OrganizationService(
             Created: true);
     }
 
-    /// <summary>Owners only (checked by the endpoint's role requirement).</summary>
+    /// <summary>Owners only: the endpoint's role requirement, and again under the write lock.</summary>
     public async Task<OrganizationResult> RenameAsync(
         OrganizationCaller caller,
         string? name,
@@ -340,6 +341,8 @@ public sealed class OrganizationService(
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOnly, cancellationToken);
 
         var organization =
             await dbContext.Organizations.SingleAsync(

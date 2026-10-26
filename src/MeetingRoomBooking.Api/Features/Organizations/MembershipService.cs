@@ -52,6 +52,7 @@ public sealed record MembershipResult(
 /// </remarks>
 public sealed class MembershipService(
     BookingDbContext dbContext,
+    OrganizationAccessService organizationAccess,
     TimeProvider timeProvider)
 {
     public async Task<IReadOnlyList<MemberResponse>> ListAsync(
@@ -113,12 +114,9 @@ public sealed class MembershipService(
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        // Read again under the write lock: a concurrent request may have
-        // demoted or removed the caller since the access filter ran.
-        if (await CurrentRoleAsync(caller, cancellationToken) != MembershipRole.Owner)
-        {
-            return MembershipResult.Failed(MembershipFailure.PermissionDenied);
-        }
+        // Checked again under the write lock: a concurrent request may have
+        // demoted, removed or disabled the caller since the access filter ran.
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOnly, cancellationToken);
 
         var target = await FindAsync(caller.OrganizationId, userPublicId, cancellationToken);
 
@@ -177,6 +175,10 @@ public sealed class MembershipService(
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
+        // Every member may leave; whether the caller may remove someone else
+        // depends on their role as it is now.
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.AnyMember, cancellationToken);
+
         var target = await FindAsync(caller.OrganizationId, userPublicId, cancellationToken);
 
         if (target is null)
@@ -188,7 +190,7 @@ public sealed class MembershipService(
         var leaving = membership.UserId == caller.UserId;
 
         if (!leaving &&
-            await CurrentRoleAsync(caller, cancellationToken) != MembershipRole.Owner)
+            !caller.IsOwner)
         {
             return MembershipResult.Failed(MembershipFailure.PermissionDenied);
         }
@@ -243,15 +245,6 @@ public sealed class MembershipService(
 
         return membership is null ? null : (membership, user);
     }
-
-    private Task<MembershipRole?> CurrentRoleAsync(
-        OrganizationCaller caller,
-        CancellationToken cancellationToken) =>
-        dbContext.Memberships
-            .AsNoTracking()
-            .Where(membership => membership.OrganizationId == caller.OrganizationId && membership.UserId == caller.UserId)
-            .Select(membership => (MembershipRole?)membership.Role)
-            .SingleOrDefaultAsync(cancellationToken);
 
     private async Task<bool> IsLastOwnerAsync(
         int organizationId,

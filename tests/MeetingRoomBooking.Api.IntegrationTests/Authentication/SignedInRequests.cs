@@ -99,6 +99,15 @@ public static class SignedInRequests
     public static async Task<long> CountAsync(
         WebApplicationFactory<Program> factory,
         string sql,
+        params object[] parameters) =>
+        Convert.ToInt64(
+            await ScalarAsync(factory, sql, parameters)
+            ?? throw new InvalidOperationException("The query returned no value."));
+
+    /// <summary>The first column of the first row, or null.</summary>
+    public static async Task<object?> ScalarAsync(
+        WebApplicationFactory<Program> factory,
+        string sql,
         params object[] parameters)
     {
         using var scope = factory.Services.CreateScope();
@@ -119,7 +128,8 @@ public static class SignedInRequests
                 command.Parameters.Add(parameter);
             }
 
-            return Convert.ToInt64(await command.ExecuteScalarAsync());
+            var value = await command.ExecuteScalarAsync();
+            return value is DBNull ? null : value;
         }
         finally
         {

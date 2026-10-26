@@ -76,6 +76,7 @@ public sealed record InvitationResult<T>(
 /// </remarks>
 public sealed class InvitationService(
     BookingDbContext dbContext,
+    OrganizationAccessService organizationAccess,
     TimeProvider timeProvider)
 {
     public static readonly TimeSpan Lifetime =
@@ -405,7 +406,7 @@ public sealed class InvitationService(
     /// <summary>
     /// Revokes an open invitation of the organisation, so its link stops
     /// working. Owners revoke any; Admins only invitations they could have
-    /// sent themselves (Member invitations).
+    /// sent themselves (Member invitations), by their role under the write lock.
     /// </summary>
     public async Task<InvitationFailure> RevokeAsync(
         OrganizationCaller caller,
@@ -416,6 +417,8 @@ public sealed class InvitationService(
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        caller = await organizationAccess.ReauthorizeAsync(caller, OrganizationRoleRequirement.OwnerOrAdmin, cancellationToken);
 
         var invitation =
             await dbContext.Invitations

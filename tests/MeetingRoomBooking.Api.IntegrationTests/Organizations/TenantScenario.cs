@@ -4,6 +4,8 @@ using MeetingRoomBooking.Api.Data;
 using MeetingRoomBooking.Api.Features.Organizations;
 using MeetingRoomBooking.Api.IntegrationTests.Authentication;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using static MeetingRoomBooking.Api.IntegrationTests.Authentication.SignedInRequests;
@@ -34,10 +36,23 @@ public sealed class TenantScenario
         MeetingRoomBookingApiFactory baseFactory)
     {
         this.baseFactory = baseFactory;
-        Factory = baseFactory.WithWebHostBuilder(builder => builder.UseEntraTestTokens());
+
+        Factory =
+            baseFactory.WithWebHostBuilder(
+                builder =>
+                    builder
+                        .UseEntraTestTokens()
+                        .ConfigureTestServices(
+                            services =>
+                                services.ConfigureDbContext<BookingDbContext>(
+                                    options => options.AddInterceptors(Transactions))));
     }
 
     public WebApplicationFactory<Program> Factory { get; }
+
+    /// <summary>Holds a request's transaction at an exact point (idle unless a test arms it).</summary>
+    public TransactionGate Transactions { get; } =
+        new();
 
     public TestTimeProvider Clock =>
         baseFactory.Clock;
@@ -241,6 +256,19 @@ public sealed class TenantScenario
     {
         Assert.Equal(status, response.StatusCode);
         Assert.Equal(code, await ProblemCodeAsync(response));
+    }
+
+    /// <summary>The problem body without its per-request trace ID.</summary>
+    public static async Task<string> ProblemWithoutTraceAsync(
+        HttpResponseMessage response)
+    {
+        var problem = await JsonAsync(response);
+
+        return JsonSerializer.Serialize(
+            problem.EnumerateObject()
+                .Where(property => property.Name != "traceId")
+                .OrderBy(property => property.Name, StringComparer.Ordinal)
+                .ToDictionary(property => property.Name, property => property.Value));
     }
 
     public void Dispose()
