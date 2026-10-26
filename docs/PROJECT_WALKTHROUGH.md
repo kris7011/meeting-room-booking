@@ -214,6 +214,11 @@ Every organisation endpoint is mapped inside `MapOrganizationGroup`, under
 | Admin | As Owner | Rooms, member list, invite Members, revoke Member invitations |
 | Member | Search and book; change/delete own bookings | Leave the organisation |
 
+The full endpoint-by-role matrix, with the test that proves each cell, is in
+[role-permission-matrix.md](role-permission-matrix.md). `RolePermissionMatrixTests`
+reads the route table and fails if an endpoint's role requirement no longer
+matches it.
+
 **Legacy endpoints.** `/api/rooms` and `/api/bookings` are the original
 assignment endpoints. They always work on the legacy organisation and are
 protected by the same filter with a fixed organisation ID. `LegacyApi:AllowAnonymous`
@@ -361,6 +366,8 @@ and carry a stable `code` extension (for example `booking_overlap`,
 
 The final Phase 4A validation on 2026-10-24 reported **303 passing backend tests**
 (`dotnet test`, Release, Windows) at commit `228e1eb`, later merged in PR #13.
+Phase 5A added `RolePermissionMatrixTests`: **309 passing** on 2026-10-26
+(Release, Windows), on `main` at `c2ca321` plus that change.
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
 device, production configuration, and performance under load.
@@ -518,6 +525,11 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 - **No account linking**, no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
+- **Room and booking changes use the role read at the start of the request.**
+  Only `MembershipService` reads the caller's role again under the write
+  lock, so a request already running when its caller is demoted can still
+  finish; the next one is refused (see
+  [role-permission-matrix.md](role-permission-matrix.md#known-limitation)).
 
 ## 14. How this project was built
 
