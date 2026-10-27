@@ -49,6 +49,9 @@ public sealed class BookingDbContext(
     public DbSet<AuditEvent> AuditEvents =>
         Set<AuditEvent>();
 
+    public DbSet<BookingCreationRequest> BookingCreationRequests =>
+        Set<BookingCreationRequest>();
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
@@ -77,6 +80,80 @@ public sealed class BookingDbContext(
 
         ConfigureAuditEvents(
             modelBuilder.Entity<AuditEvent>());
+
+        ConfigureBookingCreationRequests(
+            modelBuilder.Entity<BookingCreationRequest>());
+    }
+
+    private static void ConfigureBookingCreationRequests(
+        EntityTypeBuilder<BookingCreationRequest> builder)
+    {
+        builder.ToTable(
+            "BookingCreationRequests",
+            tableBuilder =>
+                // Only a lower-case hex SHA-256 fits.
+                tableBuilder.HasCheckConstraint(
+                    "CK_BookingCreationRequests_RequestHash",
+                    $"length(\"RequestHash\") = {BookingCreationRequest.RequestHashLength} AND \"RequestHash\" NOT GLOB '*[^0-9a-f]*'"));
+
+        builder.HasKey(request => request.Id);
+
+        builder.Property(request => request.RequestHash)
+            .HasMaxLength(BookingCreationRequest.RequestHashLength)
+            .IsRequired();
+
+        builder.Property(request => request.CreatedUtc)
+            .HasConversion(
+                DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.HasOne<Organization>()
+            .WithMany()
+            .HasForeignKey(request => request.OrganizationId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(request => request.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Deleting the booking keeps the key used: a repeat is told the
+        // booking is gone instead of creating it again.
+        builder.HasOne<Booking>()
+            .WithMany()
+            .HasForeignKey(request => request.BookingId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // One booking per key, caller and organisation. SQLite treats NULLs
+        // as distinct, so anonymous demo-mode keys get their own index.
+        builder.HasIndex(
+                request => new
+                {
+                    request.OrganizationId,
+                    request.UserId,
+                    request.IdempotencyKey
+                })
+            .IsUnique()
+            .HasFilter("\"UserId\" IS NOT NULL")
+            .HasDatabaseName("UX_BookingCreationRequests_Organization_User_Key");
+
+        builder.HasIndex(
+                request => new
+                {
+                    request.OrganizationId,
+                    request.IdempotencyKey
+                })
+            .IsUnique()
+            .HasFilter("\"UserId\" IS NULL")
+            .HasDatabaseName("UX_BookingCreationRequests_Organization_Key_Anonymous");
+
+        // The retention clean-up.
+        builder.HasIndex(request => request.CreatedUtc)
+            .HasDatabaseName("IX_BookingCreationRequests_CreatedUtc");
+
+        builder.HasIndex(request => request.BookingId)
+            .HasDatabaseName("IX_BookingCreationRequests_BookingId");
     }
 
     private static void ConfigureUserIdentities(

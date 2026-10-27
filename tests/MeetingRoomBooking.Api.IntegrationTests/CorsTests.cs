@@ -52,6 +52,25 @@ public sealed class CorsTests
     }
 
     [Fact]
+    public async Task Development_AllowsTheIdempotencyKeyHeader()
+    {
+        using var factory = new MeetingRoomBookingApiFactory();
+        using var client = CreateClient(factory, "Development");
+
+        using var request = BookingPreflight(ExpoWebOrigin);
+        request.Headers.Remove("Access-Control-Request-Headers");
+        request.Headers.Add("Access-Control-Request-Headers", "content-type,idempotency-key");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Contains(
+            "idempotency-key",
+            string.Join(",", response.Headers.GetValues("Access-Control-Allow-Headers")),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Development_DoesNotAllowUnlistedOrigin()
     {
         using var factory = new MeetingRoomBookingApiFactory();

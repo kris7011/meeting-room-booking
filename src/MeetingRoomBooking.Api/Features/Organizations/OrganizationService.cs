@@ -77,7 +77,7 @@ public sealed class OrganizationService(
     TimeProvider timeProvider,
     ILogger<OrganizationService> logger)
 {
-    public const string IdempotencyKeyHeader = "Idempotency-Key";
+    public const string IdempotencyKeyHeader = IdempotencyHeaders.Key;
 
     /// <summary>Per user and rolling 24 hours; repeated requests do not count.</summary>
     public const int MaximumCreatedPerDay = 10;

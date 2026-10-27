@@ -244,8 +244,9 @@ Code: [`BookingDbContext.cs`](../src/MeetingRoomBooking.Api/Data/BookingDbContex
 ### Tables
 
 `Organizations`, `MeetingRooms`, `Bookings`, `Users`, `UserIdentities`,
-`Memberships`, `Invitations`, `AuditEvents`, plus EF Core's
-`__EFMigrationsHistory`.
+`Memberships`, `Invitations`, `AuditEvents`, `BookingCreationRequests`
+(Idempotency-Keys of booking creations, kept 24 hours; [ADR 0005](adr/0005-idempotent-booking-creation.md)),
+plus EF Core's `__EFMigrationsHistory`.
 
 ### Invariants enforced by the database [Tested]
 
@@ -260,6 +261,7 @@ a manual SQL statement cannot break them:
 | An organisation never loses its last Owner | Triggers `TR_Memberships_LastOwner_Delete/Update` (`last_owner`) |
 | End after start; valid roles; lower-case e-mails; token hash shape | Check constraints |
 | One open invitation per e-mail and organisation; unique active room names | Filtered unique indexes |
+| One booking per Idempotency-Key, caller and organisation | Filtered unique indexes on `BookingCreationRequests` (signed-in and anonymous scopes) |
 
 `BookingService` catches the trigger error (`SqliteException` code 19 with
 `booking_overlap`) and returns the same 409 as its own check.
@@ -335,6 +337,18 @@ Code: `InvitationService`, [`InvitationToken.cs`](../src/MeetingRoomBooking.Api/
   (10:00–11:00 after 09:00–10:00) are allowed.
 - Members may only change their own bookings.
 
+**Idempotent creation [Tested, In review]** ([ADR 0005](adr/0005-idempotent-booking-creation.md)).
+Both `POST …/bookings` endpoints accept an optional `Idempotency-Key` (a GUID).
+Inside the same `BEGIN IMMEDIATE` transaction, `CreateAsync` first
+reauthorizes the caller, then (`ReplayAsync`) deletes keys older than 24 hours
+and looks the key up for this organisation and user. A known key with the same
+request (SHA-256 of room, title, booked-by and the start/end instants as sent)
+returns the existing booking with `200` and `Idempotent-Replayed: true`; with
+another request `422 idempotency_key_reused`; if that booking was deleted
+since, `410 created_booking_deleted`. A new key is stored together with the new
+booking, so after a crash both exist or neither does. Without the header
+nothing changes. Booking creation writes no audit event, with or without a key.
+
 ### 8.5 The first Owner of the legacy organisation [Tested]
 `LegacyOwnerBootstrap`: the configuration value
 `Organizations:InitialLegacyOwnerUserId` makes a registered user the first
@@ -354,7 +368,8 @@ yet [Not implemented].
 Errors are Problem Details (RFC 9457). Business and access errors are created
 in [`ApiProblems.cs`](../src/MeetingRoomBooking.Api/Features/ApiProblems.cs)
 and carry a stable `code` extension (for example `booking_overlap`,
-`organization_not_found`); clients branch on `code`, while `title` and
+`organization_not_found`, `idempotency_key_reused`, `created_booking_deleted`);
+clients branch on `code`, while `title` and
 `detail` are for people. Input validation errors are standard
 `ValidationProblem` responses (400) with an `errors` object per field.
 
@@ -367,6 +382,7 @@ and carry a stable `code` extension (for example `booking_overlap`,
 | Time | `TestTimeProvider` replaces `TimeProvider`, so "must start in the future" tests do not decay | `BookingTimeValidationTests` |
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
 | Access revoked mid-request | A real request held after the access filter by a test-only EF Core interceptor (`TransactionGate`) while its caller is disabled, removed or demoted; no timing | `MutationReauthorizationTests` [Tested] |
+| Idempotent booking creation | Repeats, concurrent duplicates, a repeat while the first holds the write lock, the answer lost after `COMMIT` (`TransactionGate.AfterCommit`), an API restart on the same file, user and organisation scope, revocation before and during a retry, retention, deleted booking | `BookingIdempotencyTests` [Tested] |
 | Migrations | Databases built from older schemas with raw SQL, then migrated; data, IDs and triggers checked | `Migrations/*` |
 | Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [Tested] |
 | Backup under writes | Repeated backups and restores while another connection commits bookings; a commit exactly between snapshot and copy; a saved but uncommitted booking; clean-up after a failed backup; no overwrite; fingerprints | `DatabaseBackupConcurrencyTests`, `DatabaseBackupTests` [Tested] |
@@ -386,6 +402,9 @@ Against `main` without the service changes, 26 of its 32 request tests fail.
 Phase 5C added `ProductionDefaultsTests` (7 tests, no production code
 changed): **349 passing** on 2026-10-27 (Release, Windows), on `main` at
 `064739a` plus that change.
+Phase 5D added `BookingIdempotencyTests` (28 tests) and a CORS test:
+**378 passing** on 2026-10-27 (Release, Windows), on `main` at `a5b3f91`
+plus that change.
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
 device, a real deployment (TLS certificates, a reverse proxy, hosting
@@ -519,6 +538,7 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 | Feature folders | A feature is understood by opening one folder | Shared concerns (`ApiProblems`, `Data`) sit beside features | – |
 | Result enums from services, HTTP mapping in endpoints | Services testable and HTTP-agnostic | Some mapping code per feature | – |
 | Changes reauthorize under the write lock; a lost access is an exception the filter maps | Check and write see the same membership; one mapping for 403/404 | Services depend on the filter to translate it; two extra reads per change | [ADR 0004](adr/0004-reauthorize-mutations-under-the-write-lock.md) |
+| Booking Idempotency-Keys in their own table, written in the booking's transaction | Survives restarts and crashes; a deleted booking keeps its key used; retention without touching bookings | Three extra statements per keyed creation under the write lock | [ADR 0005](adr/0005-idempotent-booking-creation.md) |
 | `TimeProvider` injected | Time-dependent rules testable at exact instants | – | – |
 | Identity = issuer + `oid`, never e-mail | E-mail is mutable and not unique across account types | Linking two accounts of one person is not supported yet | – |
 
@@ -558,6 +578,11 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 - **No account linking**, no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
+- **Booking Idempotency-Keys last 24 hours.** A retry after that is a new
+  request (the overlap rule still refuses a second booking of the same slot).
+  Expired keys are deleted by the next *successful* keyed creation; a refused
+  request rolls its clean-up back. In anonymous demo mode all callers share
+  one key scope.
 - **Reads use the access read at the start of the request.** Changes check
   again under the write lock (Phase 5B); a `GET` running while its caller is
   removed still returns what they could see a moment earlier (see
