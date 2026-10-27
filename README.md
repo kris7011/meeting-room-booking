@@ -829,6 +829,7 @@ Backend scenarios include:
 - Successful deletion.
 - Deletion of missing bookings.
 - CORS: the Expo web origin is allowed in Development, other origins are not, and Production sends no CORS headers.
+- Environment defaults: Swagger only in Development, HTTP redirected to HTTPS outside Development when the HTTPS port is known, and an unhandled exception answered with a generic 500 problem without its details in every environment.
 - Migrations: a database on the previous schema keeps every room, booking, ID and UTC timestamp; the AUTOINCREMENT counters never go back; both overlap triggers survive; organisation keys and indexes hold.
 - Backup and restore: a verified backup before pending migrations, start-up stops when the backup fails or when a non-empty database has no migration history, and a real restore of a backup file.
 - Organisation scope: the existing endpoints never show or change data of another organisation, and their JSON is unchanged.
