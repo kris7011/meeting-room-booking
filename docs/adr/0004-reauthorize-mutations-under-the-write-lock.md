@@ -1,6 +1,6 @@
 # ADR 0004: Reauthorize every organisation change under the write lock
 
-- **Status:** Proposed (Phase 5B, mobile issue #20)
+- **Status:** Accepted (Phase 5B, mobile issue #20; backend PR #16 merged)
 - **Code:** `Features/Organizations/OrganizationAccess.cs`
   (`OrganizationAccessService.ReauthorizeAsync`, `OrganizationAccessDeniedException`,
   `OrganizationAccessFilter`), `Features/Rooms/RoomAdministrationService.cs`,

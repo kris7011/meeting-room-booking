@@ -69,6 +69,8 @@ legacy organisation (`OrganizationScopedAccessTests.OriginalEndpoints_RequireALe
 | Removed member, same token | `404` at once; their bookings are kept | `MemberManagementTests.Owner_RemovesAMember_WhoLosesAccessButKeepsTheirBookings` |
 | Demoted Admin, same token | Member rights from the next request on | `RolePermissionMatrixTests.DemotedAdmin_LosesTheAdminRightsOnTheNextRequest_WithTheSameToken` |
 | Disabled, removed or demoted **while a change is running** (after the filter, before its transaction) | Same answer as a request sent afterwards (`403 user_disabled`, `404 organization_not_found`, `403 organization_permission_denied` / `booking_permission_denied`); no row and no audit event written | `MutationReauthorizationTests` (rooms ×4 changes ×3 revocations, bookings incl. the original `/api/bookings`, rename, invitation revoke, role change, remove) |
+| Removed or disabled, then **repeats a booking with its Idempotency-Key** (before or while it waits for the write lock) | Same `404`/`403` as any request; the stored booking is never returned | `BookingIdempotencyTests.Retry_AfterAccessWasRevoked_IsRefusedWithoutTheBooking`, `…Retry_WhoseAccessIsRevokedWhileItWaitsForTheLock_IsRefused` |
+| Another member or another organisation reuses someone's Idempotency-Key | A new request in their own scope (a taken slot is `409 booking_overlap`); never the other caller's booking | `BookingIdempotencyTests.Keys_AreScopedToTheUser`, `…Keys_AreScopedToTheOrganization` |
 
 ## Invariants
 
