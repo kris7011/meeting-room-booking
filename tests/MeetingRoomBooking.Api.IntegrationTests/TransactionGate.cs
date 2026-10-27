@@ -10,7 +10,10 @@ public enum TransactionGatePoint
     BeforeBegin,
 
     /// <summary>Right after <c>BEGIN IMMEDIATE</c>: the request holds the write lock.</summary>
-    AfterBegin
+    AfterBegin,
+
+    /// <summary>Right after <c>COMMIT</c>: the change is durable, the response not yet sent.</summary>
+    AfterCommit
 }
 
 /// <summary>
@@ -60,6 +63,14 @@ public sealed class TransactionGate
     {
         await HoldAsync(TransactionGatePoint.AfterBegin);
         return result;
+    }
+
+    public override async Task TransactionCommittedAsync(
+        DbTransaction transaction,
+        TransactionEndEventData eventData,
+        CancellationToken cancellationToken = default)
+    {
+        await HoldAsync(TransactionGatePoint.AfterCommit);
     }
 
     // Only the first transaction to reach the armed point is held.

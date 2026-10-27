@@ -1,4 +1,5 @@
 using MeetingRoomBooking.Api.Data;
+using MeetingRoomBooking.Api.Features;
 using MeetingRoomBooking.Api.Features.Authentication;
 using MeetingRoomBooking.Api.Features.Bookings;
 using MeetingRoomBooking.Api.Features.Organizations;
@@ -22,6 +23,7 @@ builder.Services.AddProblemDetails();
 // http://localhost:8081) need CORS. Only Development allows it, and only for
 // the origins listed in appsettings.Development.json: other environments
 // send no CORS headers, so browsers keep blocking cross-origin calls there.
+// Idempotency-Key is allowed so the web app can repeat a booking safely.
 const string DevelopmentClientsCorsPolicy =
     "DevelopmentClients";
 
@@ -42,7 +44,7 @@ if (corsAllowedOrigins.Length > 0)
                     policy
                         .WithOrigins(corsAllowedOrigins)
                         .WithMethods("GET", "POST", "PUT", "DELETE")
-                        .WithHeaders("Accept", "Content-Type")));
+                        .WithHeaders("Accept", "Content-Type", IdempotencyHeaders.Key)));
 }
 
 builder.Services.AddDbContext<BookingDbContext>(

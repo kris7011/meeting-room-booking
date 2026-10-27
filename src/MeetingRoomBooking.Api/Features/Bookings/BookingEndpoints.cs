@@ -1,5 +1,6 @@
 using MeetingRoomBooking.Api.Data;
 using MeetingRoomBooking.Api.Features.Organizations;
+using Microsoft.AspNetCore.Mvc;
 
 namespace MeetingRoomBooking.Api.Features.Bookings;
 
@@ -130,10 +131,17 @@ public static class BookingEndpoints
 
     private static async Task<IResult> CreateAsync(
         SaveBookingRequest request,
+        [FromHeader(Name = IdempotencyHeaders.Key)] string? idempotencyKey,
         BookingService service,
         CurrentOrganization organization,
+        HttpResponse response,
         CancellationToken cancellationToken)
     {
+        if (!IdempotentBookingRequest.TryRead(idempotencyKey, request, out var idempotency))
+        {
+            return InvalidIdempotencyKey();
+        }
+
         var validationResult =
             ValidateRequest(
                 request);
@@ -148,6 +156,7 @@ public static class BookingEndpoints
                 LegacyOrganization.Id,
                 request,
                 organization.Caller,
+                idempotency,
                 cancellationToken);
 
         if (HandleMutationFailure(result.Failure, bookingId: null, roomId: request.RoomId) is { } failure)
@@ -159,7 +168,9 @@ public static class BookingEndpoints
             GetSuccessfulBooking(
                 result);
 
-        return Results.Created(
+        return Created(
+            result,
+            response,
             $"/api/bookings/{booking.Id}",
             BookingResponse.FromBooking(
                 booking));
@@ -281,12 +292,20 @@ public static class BookingEndpoints
 
     private static async Task<IResult> CreateOrganizationBookingAsync(
         SaveBookingRequest request,
+        [FromHeader(Name = IdempotencyHeaders.Key)] string? idempotencyKey,
         BookingService service,
         CurrentOrganization organization,
+        HttpResponse response,
         CancellationToken cancellationToken)
     {
         var caller =
             organization.Required();
+
+        // The key covers the request as sent, before the defaults below.
+        if (!IdempotentBookingRequest.TryRead(idempotencyKey, request, out var idempotency))
+        {
+            return InvalidIdempotencyKey();
+        }
 
         // "Booked by" defaults to the signed-in user's name.
         request =
@@ -304,6 +323,7 @@ public static class BookingEndpoints
                 caller.OrganizationId,
                 request,
                 caller,
+                idempotency,
                 cancellationToken);
 
         if (HandleMutationFailure(result.Failure, bookingId: null, roomId: request.RoomId) is { } failure)
@@ -315,7 +335,9 @@ public static class BookingEndpoints
             GetSuccessfulBooking(
                 result);
 
-        return Results.Created(
+        return Created(
+            result,
+            response,
             $"/api/organizations/{caller.OrganizationPublicId}/bookings/{booking.Id}",
             OrganizationBookingResponse.FromBooking(
                 booking,
@@ -390,6 +412,33 @@ public static class BookingEndpoints
 
     // Shared
 
+    /// <summary>
+    /// 201 for a new booking. A repeated Idempotency-Key gets 200 with the
+    /// booking its first request created, marked Idempotent-Replayed, like
+    /// a repeated organisation creation.
+    /// </summary>
+    private static IResult Created<TResponse>(
+        BookingMutationResult result,
+        HttpResponse response,
+        string location,
+        TResponse body)
+    {
+        if (!result.Replayed)
+        {
+            return Results.Created(location, body);
+        }
+
+        response.Headers[IdempotencyHeaders.Replayed] = "true";
+        return Results.Ok(body);
+    }
+
+    private static IResult InvalidIdempotencyKey() =>
+        Results.ValidationProblem(
+            new Dictionary<string, string[]>
+            {
+                [IdempotencyHeaders.Key] = [IdempotentBookingRequest.InvalidKeyMessage]
+            });
+
     private static IResult? ValidateRequest(
         SaveBookingRequest request)
     {
@@ -457,6 +506,28 @@ public static class BookingEndpoints
                         "Not your booking",
                     detail:
                         "Members can only change and delete bookings they made themselves. Ask an Owner or Admin."),
+
+            BookingMutationFailure.IdempotencyKeyReused =>
+                ApiProblems.Create(
+                    statusCode:
+                        StatusCodes.Status422UnprocessableEntity,
+                    code:
+                        "idempotency_key_reused",
+                    title:
+                        "Idempotency-Key already used",
+                    detail:
+                        "This Idempotency-Key was already used for a booking with other details. Use a new key for a new booking."),
+
+            BookingMutationFailure.CreatedBookingDeleted =>
+                ApiProblems.Create(
+                    statusCode:
+                        StatusCodes.Status410Gone,
+                    code:
+                        "created_booking_deleted",
+                    title:
+                        "Booking was created and has since been deleted",
+                    detail:
+                        "The earlier request with this Idempotency-Key created a booking that has since been deleted. Use a new key to book again."),
 
             _ =>
                 throw new ArgumentOutOfRangeException(

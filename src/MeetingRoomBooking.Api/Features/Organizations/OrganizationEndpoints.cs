@@ -98,7 +98,7 @@ public static class OrganizationEndpoints
         }
 
         // A repeated request: the organisation the first one created.
-        response.Headers["Idempotent-Replayed"] = "true";
+        response.Headers[IdempotencyHeaders.Replayed] = "true";
         return Results.Ok(organization);
     }
 

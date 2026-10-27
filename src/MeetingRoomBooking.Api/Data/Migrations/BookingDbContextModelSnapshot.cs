@@ -113,6 +113,58 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Bookings.BookingCreationRequest", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("BookingId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("IdempotencyKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("OrganizationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingId")
+                        .HasDatabaseName("IX_BookingCreationRequests_BookingId");
+
+                    b.HasIndex("CreatedUtc")
+                        .HasDatabaseName("IX_BookingCreationRequests_CreatedUtc");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("OrganizationId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BookingCreationRequests_Organization_Key_Anonymous")
+                        .HasFilter("\"UserId\" IS NULL");
+
+                    b.HasIndex("OrganizationId", "UserId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_BookingCreationRequests_Organization_User_Key")
+                        .HasFilter("\"UserId\" IS NOT NULL");
+
+                    b.ToTable("BookingCreationRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_BookingCreationRequests_RequestHash", "length(\"RequestHash\") = 64 AND \"RequestHash\" NOT GLOB '*[^0-9a-f]*'");
+                        });
+                });
+
             modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Invitation", b =>
                 {
                     b.Property<int>("Id")
@@ -480,6 +532,25 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Bookings.BookingCreationRequest", b =>
+                {
+                    b.HasOne("MeetingRoomBooking.Api.Features.Bookings.Booking", null)
+                        .WithMany()
+                        .HasForeignKey("BookingId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("MeetingRoomBooking.Api.Features.Organizations.Invitation", b =>

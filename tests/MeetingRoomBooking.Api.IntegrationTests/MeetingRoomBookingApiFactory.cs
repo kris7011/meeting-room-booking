@@ -25,12 +25,20 @@ public sealed class MeetingRoomBookingApiFactory
     /// <summary>
     /// The test's own SQLite file under the system temp folder: a new one by
     /// default, or an existing one, such as a restored backup, to start the
-    /// API on. It is deleted when the factory is disposed.
+    /// API on. It is deleted when the factory is disposed, unless
+    /// <see cref="KeepDatabaseOnDispose"/> is set.
     /// </summary>
     public string DatabasePath { get; init; } =
         Path.Combine(
             Path.GetTempPath(),
             $"meeting-room-booking-tests-{Guid.NewGuid():N}.db");
+
+    /// <summary>
+    /// Leaves the database file behind on dispose, so a test can stop this
+    /// API and start another one on the same file (an API restart). The
+    /// next factory on the file deletes it.
+    /// </summary>
+    public bool KeepDatabaseOnDispose { get; init; }
 
     public string ConnectionString =>
         $"Data Source={DatabasePath};Pooling=False";
@@ -94,7 +102,8 @@ public sealed class MeetingRoomBookingApiFactory
     {
         base.Dispose(disposing);
 
-        if (!disposing)
+        if (!disposing ||
+            KeepDatabaseOnDispose)
         {
             return;
         }

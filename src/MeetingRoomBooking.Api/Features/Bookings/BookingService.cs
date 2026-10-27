@@ -19,19 +19,35 @@ public enum BookingMutationFailure
     /// The booking exists in the organisation, but the caller may not change
     /// or delete it (a Member and someone else's booking).
     /// </summary>
-    PermissionDenied
+    PermissionDenied,
+
+    /// <summary>The Idempotency-Key was used before with another request.</summary>
+    IdempotencyKeyReused,
+
+    /// <summary>
+    /// The Idempotency-Key's earlier request created a booking that has
+    /// since been deleted.
+    /// </summary>
+    CreatedBookingDeleted
 }
 
+/// <param name="Replayed">
+/// True when an Idempotency-Key repeat returns the booking an earlier
+/// request created, instead of creating one.
+/// </param>
 public sealed record BookingMutationResult(
     Booking? Booking,
-    BookingMutationFailure Failure)
+    BookingMutationFailure Failure,
+    bool Replayed = false)
 {
     public static BookingMutationResult Success(
-        Booking booking)
+        Booking booking,
+        bool replayed = false)
     {
         return new BookingMutationResult(
             booking,
-            BookingMutationFailure.None);
+            BookingMutationFailure.None,
+            replayed);
     }
 
     public static BookingMutationResult Failed(
@@ -85,7 +101,8 @@ public sealed record BookingActor(
 public sealed class BookingService(
     BookingDbContext dbContext,
     OrganizationAccessService organizationAccess,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<BookingService> logger)
 {
     private IQueryable<Booking> BookingsOf(
         int organizationId) =>
@@ -140,10 +157,22 @@ public sealed class BookingService(
                 cancellationToken);
     }
 
+    /// <param name="idempotency">
+    /// The request's Idempotency-Key, or null without one. With a key, the
+    /// booking and the key are stored in one transaction; a repeat by the
+    /// same caller in the same organisation returns that booking.
+    /// </param>
+    /// <remarks>
+    /// Order under the write lock: the caller's current access first, so a
+    /// repeat never returns a booking to someone who has since lost access;
+    /// then the key, so a repeat is answered even after the start has passed
+    /// or the room was archived; then the checks for a new booking.
+    /// </remarks>
     public async Task<BookingMutationResult> CreateAsync(
         int organizationId,
         SaveBookingRequest request,
         OrganizationCaller? caller,
+        IdempotentBookingRequest? idempotency,
         CancellationToken cancellationToken)
     {
         var startUtc =
@@ -156,8 +185,10 @@ public sealed class BookingService(
             timeProvider.GetUtcNow();
 
         // Checked before the room lookup: invalid input is a 400, like the
-        // request validator's errors, before a 404 for an unknown room.
-        if (startUtc <= nowUtc)
+        // request validator's errors, before a 404 for an unknown room. A
+        // keyed request is checked after its key instead (see remarks).
+        if (idempotency is null &&
+            startUtc <= nowUtc)
         {
             return BookingMutationResult.Failed(
                 BookingMutationFailure.StartNotInFuture);
@@ -171,6 +202,21 @@ public sealed class BookingService(
                 organizationId,
                 caller,
                 cancellationToken);
+
+        if (idempotency is not null)
+        {
+            if (await ReplayAsync(organizationId, actor, idempotency, nowUtc, cancellationToken)
+                is { } replayed)
+            {
+                return replayed;
+            }
+
+            if (startUtc <= nowUtc)
+            {
+                return BookingMutationResult.Failed(
+                    BookingMutationFailure.StartNotInFuture);
+            }
+        }
 
         var roomExists =
             await ActiveRoomExistsAsync(
@@ -216,6 +262,24 @@ public sealed class BookingService(
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+
+            // In the same transaction as the booking: after a crash either
+            // both exist or neither does, so a repeat can never create a
+            // second booking, nor find a key without its booking.
+            if (idempotency is not null)
+            {
+                dbContext.BookingCreationRequests.Add(
+                    BookingCreationRequest.Record(
+                        organizationId,
+                        actor?.UserId,
+                        idempotency.Key,
+                        idempotency.RequestHash,
+                        booking.Id,
+                        nowUtc));
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+
             await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException exception)
@@ -231,6 +295,90 @@ public sealed class BookingService(
 
         return BookingMutationResult.Success(
             booking);
+    }
+
+    /// <summary>
+    /// The answer to a repeated Idempotency-Key, or null when the key is new
+    /// to this caller and organisation. Called under the write lock, after
+    /// the caller's access was checked again. Deletes expired keys first, so
+    /// an expired key counts as new; the deletion commits with a new booking
+    /// and is rolled back with a refused request.
+    /// </summary>
+    /// <remarks>
+    /// The lookup and the insert in <see cref="CreateAsync"/> run under the
+    /// same write lock, so two requests with one key cannot both miss it; the
+    /// unique indexes on the table are the database's backstop.
+    /// </remarks>
+    private async Task<BookingMutationResult?> ReplayAsync(
+        int organizationId,
+        BookingActor? actor,
+        IdempotentBookingRequest idempotency,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var expiredBefore =
+            nowUtc - BookingCreationRequest.RetentionPeriod;
+
+        await dbContext.BookingCreationRequests
+            .Where(request => request.CreatedUtc < expiredBefore)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var userId =
+            actor?.UserId;
+
+        var earlier =
+            await dbContext.BookingCreationRequests
+                .AsNoTracking()
+                .Where(
+                    request =>
+                        request.OrganizationId == organizationId &&
+                        request.UserId == userId &&
+                        request.IdempotencyKey == idempotency.Key)
+                .Select(
+                    request =>
+                        new
+                        {
+                            request.RequestHash,
+                            request.BookingId
+                        })
+                .SingleOrDefaultAsync(cancellationToken);
+
+        if (earlier is null)
+        {
+            return null;
+        }
+
+        if (!string.Equals(earlier.RequestHash, idempotency.RequestHash, StringComparison.Ordinal))
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.IdempotencyKeyReused);
+        }
+
+        var booking =
+            earlier.BookingId is { } bookingId
+                ? await BookingsOf(organizationId)
+                    .AsNoTracking()
+                    .Include(candidate => candidate.Room)
+                    .SingleOrDefaultAsync(
+                        candidate =>
+                            candidate.Id == bookingId,
+                        cancellationToken)
+                : null;
+
+        if (booking is null)
+        {
+            return BookingMutationResult.Failed(
+                BookingMutationFailure.CreatedBookingDeleted);
+        }
+
+        logger.LogInformation(
+            "Repeated booking creation answered with booking {BookingId} in organisation {OrganizationId}.",
+            booking.Id,
+            organizationId);
+
+        return BookingMutationResult.Success(
+            booking,
+            replayed: true);
     }
 
     public async Task<BookingMutationResult> UpdateAsync(
