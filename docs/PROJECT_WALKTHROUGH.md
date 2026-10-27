@@ -371,6 +371,7 @@ and carry a stable `code` extension (for example `booking_overlap`,
 | Backup/restore | Snapshot round trip, WAL contents, no-overwrite rules, restored DB passes start-up checks | `DatabasePortabilityTests` [Tested] |
 | Backup under writes | Repeated backups and restores while another connection commits bookings; a commit exactly between snapshot and copy; a saved but uncommitted booking; clean-up after a failed backup; no overwrite; fingerprints | `DatabaseBackupConcurrencyTests`, `DatabaseBackupTests` [Tested] |
 | Restored API | Two-tenant data backed up while the API runs, restored, and served by a second API: same rows, 401 without a valid token, 404 for non-members, roles intact, original unchanged | `RestoredDatabaseApiTests` [Tested] |
+| Environment defaults | Production vs Development: Swagger only in Development; HTTP redirected to HTTPS outside Development (and not redirected without a known HTTPS port); an unhandled exception is a generic 500 problem without its details in every environment; CORS headers only in Development | `ProductionDefaultsTests`, `CorsTests` [Tested] |
 | Safety | `TestDatabaseGuard` refuses any database outside the temp folder or inside the API project | `TestDatabaseGuard` |
 | Web client | Angular service and component tests (Vitest), run in CI | `src/meeting-room-booking-web` |
 | End to end | The mobile repository's Playwright suite starts this API on a temporary database | room-booking-mobile `e2e/` |
@@ -382,9 +383,13 @@ Phase 5A added `RolePermissionMatrixTests`: **309 passing** on 2026-10-26
 Phase 5B added `MutationReauthorizationTests` (33 tests): **342 passing**
 on 2026-10-26 (Release, Windows), on `main` at `9fcd827` plus that change.
 Against `main` without the service changes, 26 of its 32 request tests fail.
+Phase 5C added `ProductionDefaultsTests` (7 tests, no production code
+changed): **349 passing** on 2026-10-27 (Release, Windows), on `main` at
+`064739a` plus that change.
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
-device, production configuration, and performance under load.
+device, a real deployment (TLS certificates, a reverse proxy, hosting
+configuration), and performance under load.
 
 ## 10. Local development and deployment
 
@@ -527,7 +532,20 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
 - **The Angular web client has no sign-in.** It only works with the
   Development-only anonymous mode of the legacy endpoints. CORS also does not
   allow the `Authorization` header yet.
-- **No deployment or production configuration in the repository.**
+- **No deployment or production configuration in the repository.** Before
+  a deployment, at least:
+  - Listen on HTTPS only, or make sure the HTTPS port is known (Kestrel
+    HTTPS endpoint or `HTTPS_PORT`). `UseHttpsRedirection` redirects nothing
+    without it (pinned by `ProductionDefaultsTests`). A redirect only helps
+    browsers anyway: a client that sent a bearer token over plain HTTP has
+    already exposed it. The mobile app never sends one over HTTP in a release
+    build (`canSendBearerToken` in the mobile repository).
+  - Behind a reverse proxy that ends TLS, configure forwarded headers
+    (`UseForwardedHeaders` with the proxy as a known proxy), so the API sees
+    the original scheme.
+  - Restrict `AllowedHosts` (it is `*`) to the API's host name.
+  - HSTS (`UseHsts`) is not configured; it only affects browsers, which do
+    not call the API with tokens today.
 - **Restore does not check versions.** A backup made by a newer API version
   can be restored and started by an older one; nothing warns about it.
 - **A killed backup can leave a `*.partial-<id>.tmp` file.** It never has a
