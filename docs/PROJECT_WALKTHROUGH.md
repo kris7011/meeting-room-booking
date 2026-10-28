@@ -460,9 +460,15 @@ usual sources, the later winning:
 4. Command-line arguments.
 
 A relative `Data Source` is resolved against the **process working
-directory**, not the project folder. `dotnet run --project …` from the
-repository root and from `src/MeetingRoomBooking.Api` would therefore open
-different files. `scripts/Start-Local.ps1` [Manual] removes that ambiguity:
+directory**. `dotnet run --project …` starts the API with the project folder
+as its working directory (its log shows `Content root path:
+…\src\MeetingRoomBooking.Api`), so the default `meeting-room-booking.db` is
+`src/MeetingRoomBooking.Api/meeting-room-booking.db` wherever the command is
+run from, and a relative path such as `.demo/x.db` points into that folder
+too (observed on 2026-10-28: a relative demo path from the repository root
+failed with "unable to open database file"). A started build output or
+published API uses whatever directory it is started in. Use absolute paths.
+`scripts/Start-Local.ps1` [Manual] removes that ambiguity:
 it turns `-DatabaseFile` into an absolute path, refuses to start when the file
 is missing (unless `-InitializeEmpty`), prints the path, and sets
 `ConnectionStrings__BookingDatabase` only for the API process, restoring the

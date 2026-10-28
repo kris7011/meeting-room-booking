@@ -52,6 +52,24 @@ jobs:
         shell: pwsh
         run: ./scripts/Start-Demo.ps1 -Reset -StopAfterSeed
 
+      # The README's bash variant of the demo, exactly as written there.
+      - name: Documented bash demo command
+        shell: bash
+        run: |
+          rm -rf .demo
+          mkdir -p .demo
+          ConnectionStrings__BookingDatabase="Data Source=$PWD/.demo/room-booking-demo.db" \
+          LegacyApi__AllowAnonymous=true ASPNETCORE_ENVIRONMENT=Development \
+          dotnet run --project src/MeetingRoomBooking.Api --no-launch-profile -- --urls http://localhost:5003 > api.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:5003/health > /dev/null; then break; fi
+            sleep 2
+          done
+          rooms=$(curl -fsS http://localhost:5003/api/rooms | grep -o '"id"' | wc -l)
+          echo "Rooms in the demo database: $rooms"
+          pkill -f MeetingRoomBooking.Api || true
+          if [ "$rooms" -ne 3 ]; then cat api.log; exit 1; fi
+
   frontend:
     name: Frontend build and tests
     runs-on: ubuntu-latest
