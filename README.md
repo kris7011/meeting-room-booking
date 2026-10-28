@@ -599,7 +599,7 @@ The API needs its own app registration, separate from the mobile app's:
 ### Not done yet
 
 - Linking a second identity (for example a work account and a personal account) to the same user.
-- CORS allows only `Accept` and `Content-Type`, so browser clients cannot send `Authorization` yet; native apps are not affected.
+- CORS allows only `Accept` and `Content-Type`. The Angular client sends its token to its own origin, which the development server proxies to the API, so it needs no CORS; a browser client on another origin could not send `Authorization`. Native apps are not affected.
 
 ## Organisation access control
 
@@ -675,7 +675,7 @@ For a local demo without sign-in they can be made anonymous again, as before:
 }
 ```
 
-or `$env:LegacyApi__AllowAnonymous = "true"`. This is only accepted in the `Development` and `Testing` environments: in any other environment the API refuses to start with it, so real organisation data is never anonymous in production. In demo mode a token sent to these endpoints is ignored, and the organisation endpoints still require sign-in. The default, in `appsettings.json`, is `false`. The Angular frontend in this repository calls the original endpoints without a token, so it needs demo mode.
+or `$env:LegacyApi__AllowAnonymous = "true"`. This is only accepted in the `Development` and `Testing` environments: in any other environment the API refuses to start with it, so real organisation data is never anonymous in production. In demo mode a token sent to these endpoints is ignored, and the organisation endpoints still require sign-in. The default, in `appsettings.json`, is `false`. The Angular client calls the original endpoints without a token while signed out, so it needs demo mode then; signed in, it uses the organisation endpoints ([client README](src/meeting-room-booking-web/README.md)).
 
 ## Registration and organisation access
 
@@ -796,10 +796,11 @@ npm --prefix `
     test -- --watch=false
 ```
 
-The frontend suite currently contains 8 tests:
+The frontend suite contains 31 tests (Vitest), run in CI:
 
-- 6 API-service tests.
-- 2 application-component tests.
+- API services: request URLs, methods and bodies, for the legacy and the organisation scope.
+- Sign-in: the settings file, `AuthService` against a fake MSAL client, and the interceptor (token only to the app's own `/api/` paths).
+- The page: demo mode, the signed-in organisation flow, hidden booking details, and a late answer from an organisation the user switched away from.
 
 ## Testing strategy
 

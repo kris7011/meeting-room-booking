@@ -140,4 +140,21 @@ describe('BookingApiService', () => {
 
         expect(requestCompleted).toBe(true);
     });
+
+    it('should use the organisation endpoints for a signed-in organisation scope', () => {
+        const scope = { organizationId: 'a1b2c3d4-0000-4000-8000-000000000001' };
+        const prefix = `/api/organizations/${scope.organizationId}`;
+
+        service.getRooms(scope).subscribe();
+        service.getBookings(scope).subscribe();
+        service.createBooking(request, scope).subscribe();
+        service.updateBooking(7, request, scope).subscribe();
+        service.deleteBooking(7, scope).subscribe();
+
+        httpTestingController.expectOne({ method: 'GET', url: `${prefix}/rooms` }).flush([]);
+        httpTestingController.expectOne({ method: 'GET', url: `${prefix}/bookings` }).flush([]);
+        httpTestingController.expectOne({ method: 'POST', url: `${prefix}/bookings` }).flush(booking);
+        httpTestingController.expectOne({ method: 'PUT', url: `${prefix}/bookings/7` }).flush(booking);
+        httpTestingController.expectOne({ method: 'DELETE', url: `${prefix}/bookings/7` }).flush(null);
+    });
 });

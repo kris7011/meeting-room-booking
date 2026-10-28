@@ -1,6 +1,6 @@
 # ADR 0005: Idempotent booking creation with a persisted Idempotency-Key
 
-- **Status:** Proposed (Phase 5D, in review)
+- **Status:** Accepted (Phase 5D; PR #18 merged)
 - **Code:** `Features/Bookings/BookingCreationRequest.cs`
   (`BookingCreationRequest`, `IdempotentBookingRequest`),
   `Features/Bookings/BookingService.cs` (`CreateAsync`, `ReplayAsync`),
