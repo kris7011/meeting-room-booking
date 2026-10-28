@@ -142,14 +142,19 @@ cd meeting-room-booking
 The script starts the API at `http://localhost:5003` in its Development demo
 mode on a separate database, `.demo/room-booking-demo.db` (ignored by Git;
 `-Reset` starts over), and adds three synthetic bookings through the API.
-Without PowerShell:
+Without PowerShell (macOS or Linux; it starts with no bookings):
 
 ```bash
 mkdir -p .demo
-ConnectionStrings__BookingDatabase="Data Source=.demo/room-booking-demo.db" \
+ConnectionStrings__BookingDatabase="Data Source=$PWD/.demo/room-booking-demo.db" \
 LegacyApi__AllowAnonymous=true ASPNETCORE_ENVIRONMENT=Development \
 dotnet run --project src/MeetingRoomBooking.Api --no-launch-profile -- --urls http://localhost:5003
 ```
+
+The database path must be absolute: `dotnet run --project` starts the API
+in the project folder, so a relative path would point into
+`src/MeetingRoomBooking.Api`. (In Git Bash on Windows, use `$(pwd -W)`
+instead of `$PWD`.)
 
 Then, in a second terminal:
 
