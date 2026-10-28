@@ -297,5 +297,8 @@ OpenCover/
 ASALocalRun/
 MigrationBackup/
 
+# Demo database created by scripts/Start-Demo.ps1
+.demo/
+
 # Angular browser sign-in settings (identifiers, not secrets, but per installation)
 src/meeting-room-booking-web/public/auth-config.json
