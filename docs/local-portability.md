@@ -247,3 +247,30 @@ one read-transaction snapshot (see above).
 - By hand, on a file copy of the development database: `backup` and
   `restore` with `RoomBooking.DatabaseTool` succeeded; the backup was a
   single file, and the original's SHA-256 was unchanged.
+
+## Database backup and restore
+
+> **Before the first start after updating:** a normal start of the API (`dotnet run`, or starting it from an IDE) **automatically migrates the existing database** it is configured to use, for example `src/MeetingRoomBooking.Api/meeting-room-booking.db`. The first start after the organisation changes rebuilds the `MeetingRooms` and `Bookings` tables. Make your own separate backup first: stop the API and copy the database file, together with any `-wal` and `-shm` files, to a folder outside the repository. The automatic backup described below is an extra safeguard, not a replacement for your own copy.
+
+Before the API applies pending migrations to an existing database, it writes a backup and verifies it: the copy and a fingerprint of every table (row count and content hash) come from one read-transaction snapshot, and the copy must pass `PRAGMA integrity_check` and `PRAGMA foreign_key_check` and match those fingerprints. If the backup cannot be written or verified, the API stops without migrating. After migrating, it checks foreign keys, integrity and the two booking overlap triggers, and refuses to start if any check fails. A brand-new database is not backed up.
+
+If the database file is not empty but has no Entity Framework Core migration history (the `__EFMigrationsHistory` table is missing or empty), the API cannot know which schema the file has. It then stops with an error before migrating or backing up, and leaves the file unchanged so it can be inspected by hand. To start with an empty database instead, point `ConnectionStrings:BookingDatabase` at a new file.
+
+Backups are written to `Database:BackupDirectory`, by default a `backups` folder next to the database file, and named after the first pending migration and the UTC time, for example `meeting-room-booking.pre-20261021065822_CaptureSequenceState-20261021T071023921Z.db`. They are never deleted automatically and are excluded from Git.
+
+To restore a backup:
+
+1. Stop the API so no process has the database open.
+2. Move the current `meeting-room-booking.db` and any `-wal` and `-shm` files to a new folder such as `failed-<timestamp>`. Do not delete them.
+3. Copy the chosen backup to `meeting-room-booking.db`.
+4. Check the copy: `PRAGMA integrity_check` must return `ok`, and the last row of `__EFMigrationsHistory` shows which version the backup belongs to.
+5. Start the API version that matches that migration (for a backup taken before phase 1, the version before it). A newer version migrates the restored database again, with a new backup.
+6. Check `/health`, `GET /api/rooms` and `GET /api/bookings`.
+
+To try a migration against a copy of a database instead of the original, point the API at the copy explicitly:
+
+```bash
+ConnectionStrings__BookingDatabase="Data Source=/path/to/copy/meeting-room-booking.db" \
+Database__BackupDirectory="/path/to/copy/backups" \
+dotnet run --project src/MeetingRoomBooking.Api --no-launch-profile --urls http://localhost:5203
+```

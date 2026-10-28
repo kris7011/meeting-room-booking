@@ -78,3 +78,85 @@ signed-in organisation flow, hidden booking details and a late answer from an
 organisation the user switched away from.
 
 Not automated: a real Microsoft sign-in in a browser.
+
+## Design
+
+### Reactive Forms
+
+Angular Reactive Forms manage:
+
+- Current form values.
+- Required field validation.
+- Maximum text lengths.
+- Date range validation.
+- Touched and invalid states.
+- Create and edit modes.
+
+The form uses a custom validator to ensure that the end time is later than the start time.
+
+Frontend validation improves the user experience, but backend validation remains authoritative.
+
+### Angular Signals
+
+Angular Signals manage local user interface state, including:
+
+- Meeting rooms.
+- Bookings.
+- Loading state.
+- Saving state.
+- Editing state.
+- Delete confirmation.
+- Error messages.
+- Success messages.
+
+Computed signals provide derived state, including the current form heading and whether the application is in create or edit mode.
+
+### RxJS Observables
+
+The API service returns RxJS Observables for all HTTP operations.
+
+The application uses:
+
+- `subscribe()` to receive HTTP responses.
+- `forkJoin()` to load rooms and bookings in parallel.
+- `finalize()` to reset loading and saving states after successful or failed requests.
+
+### API service
+
+HTTP communication is centralised in `BookingApiService`.
+
+The component does not need to know the implementation details of:
+
+- API URLs.
+- HTTP methods.
+- Request types.
+- Response types.
+
+The service supports:
+
+```text
+getRooms
+getBookings
+getBooking
+createBooking
+updateBooking
+deleteBooking
+```
+
+### Tailwind CSS
+
+The user interface is styled with Tailwind CSS 4 utility classes.
+
+Tailwind is processed through PostCSS using the configuration in:
+
+```text
+src/meeting-room-booking-web/.postcssrc.json
+```
+
+The Tailwind import is located in:
+
+```text
+src/meeting-room-booking-web/src/styles.css
+```
+
+The interface includes responsive layouts for desktop, tablet and mobile screen sizes.
