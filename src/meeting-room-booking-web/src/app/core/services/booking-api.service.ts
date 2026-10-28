@@ -5,46 +5,59 @@ import { Booking } from '../models/booking.model';
 import { MeetingRoom } from '../models/meeting-room.model';
 import { SaveBookingRequest } from '../models/save-booking-request.model';
 
+/**
+ * Which rooms and bookings a request is about: an organisation the user is
+ * a member of (signed in), or null for the original `/api/rooms` and
+ * `/api/bookings` endpoints (the API's anonymous demo mode).
+ */
+export type BookingScope = { readonly organizationId: string } | null;
+
 @Injectable({
   providedIn: 'root',
 })
 export class BookingApiService {
   private readonly httpClient = inject(HttpClient);
 
-  private readonly roomsUrl = '/api/rooms';
-  private readonly bookingsUrl = '/api/bookings';
-
-  getRooms(): Observable<MeetingRoom[]> {
-    return this.httpClient.get<MeetingRoom[]>(this.roomsUrl);
+  getRooms(scope: BookingScope = null): Observable<MeetingRoom[]> {
+    return this.httpClient.get<MeetingRoom[]>(`${basePath(scope)}/rooms`);
   }
 
   getAvailableRooms(
     startUtc: string,
     endUtc: string,
     minCapacity = 1,
+    scope: BookingScope = null,
   ): Observable<MeetingRoom[]> {
-    return this.httpClient.get<MeetingRoom[]>(`${this.roomsUrl}/available`, {
+    return this.httpClient.get<MeetingRoom[]>(`${basePath(scope)}/rooms/available`, {
       params: { startUtc, endUtc, minCapacity: String(minCapacity) },
     });
   }
 
-  getBookings(): Observable<Booking[]> {
-    return this.httpClient.get<Booking[]>(this.bookingsUrl);
+  getBookings(scope: BookingScope = null): Observable<Booking[]> {
+    return this.httpClient.get<Booking[]>(`${basePath(scope)}/bookings`);
   }
 
-  getBooking(bookingId: number): Observable<Booking> {
-    return this.httpClient.get<Booking>(`${this.bookingsUrl}/${bookingId}`);
+  getBooking(bookingId: number, scope: BookingScope = null): Observable<Booking> {
+    return this.httpClient.get<Booking>(`${basePath(scope)}/bookings/${bookingId}`);
   }
 
-  createBooking(request: SaveBookingRequest): Observable<Booking> {
-    return this.httpClient.post<Booking>(this.bookingsUrl, request);
+  createBooking(request: SaveBookingRequest, scope: BookingScope = null): Observable<Booking> {
+    return this.httpClient.post<Booking>(`${basePath(scope)}/bookings`, request);
   }
 
-  updateBooking(bookingId: number, request: SaveBookingRequest): Observable<Booking> {
-    return this.httpClient.put<Booking>(`${this.bookingsUrl}/${bookingId}`, request);
+  updateBooking(
+    bookingId: number,
+    request: SaveBookingRequest,
+    scope: BookingScope = null,
+  ): Observable<Booking> {
+    return this.httpClient.put<Booking>(`${basePath(scope)}/bookings/${bookingId}`, request);
   }
 
-  deleteBooking(bookingId: number): Observable<void> {
-    return this.httpClient.delete<void>(`${this.bookingsUrl}/${bookingId}`);
+  deleteBooking(bookingId: number, scope: BookingScope = null): Observable<void> {
+    return this.httpClient.delete<void>(`${basePath(scope)}/bookings/${bookingId}`);
   }
+}
+
+function basePath(scope: BookingScope): string {
+  return scope === null ? '/api' : `/api/organizations/${encodeURIComponent(scope.organizationId)}`;
 }

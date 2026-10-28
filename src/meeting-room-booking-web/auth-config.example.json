@@ -1,0 +1,5 @@
+{
+  "clientId": "<Application (client) ID of the client registration with http://localhost:4200 as SPA redirect URI>",
+  "tenant": "common",
+  "apiScope": "api://<Application (client) ID of the API registration>/access_as_user"
+}

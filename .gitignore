@@ -1,6 +1,6 @@
 # ============================================================
 # Meeting Room Booking
-# .NET 8 / ASP.NET Core / Entity Framework Core / Angular
+# .NET 10 / ASP.NET Core / Entity Framework Core / Angular
 # ============================================================
 
 
@@ -299,3 +299,6 @@ MigrationBackup/
 
 # Demo database created by scripts/Start-Demo.ps1
 .demo/
+
+# Angular browser sign-in settings (identifiers, not secrets, but per installation)
+src/meeting-room-booking-web/public/auth-config.json

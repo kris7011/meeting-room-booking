@@ -8,17 +8,34 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
-import { finalize, forkJoin } from 'rxjs';
+import { finalize, forkJoin, map, of, switchMap } from 'rxjs';
+import { AuthService, SignInRequiredError } from './core/auth/auth.service';
+import { Organization } from './core/models/account.model';
 import { Booking } from './core/models/booking.model';
 import { MeetingRoom } from './core/models/meeting-room.model';
 import { SaveBookingRequest } from './core/models/save-booking-request.model';
-import { BookingApiService } from './core/services/booking-api.service';
+import { AccountApiService } from './core/services/account-api.service';
+import { BookingApiService, BookingScope } from './core/services/booking-api.service';
 
 interface ApiProblem {
   readonly code?: string;
   readonly detail?: string;
   readonly errors?: Record<string, string[]>;
 }
+
+/** Messages for the API's stable problem codes; its English `detail` is the fallback. */
+const KNOWN_PROBLEMS: Record<string, string> = {
+  booking_overlap: 'The selected room is already booked during that time period.',
+  booking_permission_denied: 'Members can only change and delete bookings they made themselves.',
+  organization_permission_denied: 'Your role in this organisation does not allow this.',
+  organization_not_found:
+    'You are no longer a member of this organisation. Refresh to see your organisations.',
+  user_disabled: 'Your Room Booking account has been disabled.',
+  user_not_registered:
+    'Your Microsoft account is not registered with Room Booking yet. Refresh to register.',
+  authentication_not_configured:
+    'The API is not configured for Microsoft sign-in (Entra:ApiClientId is not set).',
+};
 
 function validTimeRangeValidator(control: AbstractControl): ValidationErrors | null {
   const startLocal = control.get('startLocal')?.value;
@@ -57,9 +74,32 @@ function validTimeRangeValidator(control: AbstractControl): ValidationErrors | n
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
+/**
+ * Signed out (or without sign-in configured), the app uses the original
+ * endpoints, which only the API's Development-only anonymous demo mode
+ * answers. Signed in, it uses the endpoints of the chosen organisation; the
+ * API checks membership and role on every request, and the buttons shown
+ * here only follow what it says (`canModify`).
+ */
 export class App implements OnInit {
   private readonly bookingApiService = inject(BookingApiService);
+  private readonly accountApiService = inject(AccountApiService);
   private readonly formBuilder = inject(FormBuilder);
+  protected readonly auth = inject(AuthService);
+
+  protected readonly organizations = signal<Organization[]>([]);
+  protected readonly activeOrganizationId = signal<string | null>(null);
+  protected readonly activeOrganization = computed(
+    () =>
+      this.organizations().find(
+        (organization) => organization.publicId === this.activeOrganizationId(),
+      ) ?? null,
+  );
+  /** Shown instead of the schedule, e.g. when the user belongs to no organisation. */
+  protected readonly accountMessage = signal<string | null>(null);
+
+  /** Bumped by every load and organisation switch, so a late response is ignored. */
+  private loadGeneration = 0;
 
   protected readonly rooms = signal<MeetingRoom[]>([]);
   protected readonly bookings = signal<Booking[]>([]);
@@ -100,25 +140,150 @@ export class App implements OnInit {
 
   public ngOnInit(): void {
     this.resetFormValues();
+    this.refresh();
+  }
+
+  protected refresh(): void {
+    if (this.auth.status() === 'signed-in') {
+      this.loadAccount();
+    } else {
+      this.loadData();
+    }
+  }
+
+  protected signIn(): void {
+    void this.auth.signIn();
+  }
+
+  protected signOut(): void {
+    this.loadGeneration++;
+    this.organizations.set([]);
+    this.activeOrganizationId.set(null);
+    this.rooms.set([]);
+    this.bookings.set([]);
+    void this.auth.signOut();
+  }
+
+  /**
+   * Who the API says the user is, registering them on their first visit
+   * (idempotent), then their organisations. Registration grants no access:
+   * a new user belongs to no organisation until they create one or accept
+   * an invitation.
+   */
+  protected loadAccount(): void {
+    const generation = ++this.loadGeneration;
+
+    this.isLoading.set(true);
+    this.errorMessage.set(null);
+    this.accountMessage.set(null);
+
+    this.accountApiService
+      .getCurrentUser()
+      .pipe(
+        switchMap((current) =>
+          current.user !== null
+            ? of(current)
+            : this.accountApiService
+                .register()
+                .pipe(map((registration) => registration.currentUser)),
+        ),
+        switchMap(() => this.accountApiService.getOrganizations()),
+      )
+      .subscribe({
+        next: (organizations) => {
+          if (generation !== this.loadGeneration) {
+            return;
+          }
+
+          this.organizations.set(organizations);
+
+          const active =
+            organizations.find(
+              (organization) => organization.publicId === this.activeOrganizationId(),
+            ) ??
+            organizations[0] ??
+            null;
+
+          this.activeOrganizationId.set(active?.publicId ?? null);
+
+          if (active === null) {
+            this.isLoading.set(false);
+            this.rooms.set([]);
+            this.bookings.set([]);
+            this.accountMessage.set(
+              'You are not a member of an organisation yet. Create one or accept an invitation in the Room Booking mobile app; it then appears here.',
+            );
+            return;
+          }
+
+          this.loadData();
+        },
+        error: (error: unknown) => {
+          if (generation !== this.loadGeneration) {
+            return;
+          }
+
+          this.isLoading.set(false);
+          this.errorMessage.set(this.getErrorMessage(error, 'Your account could not be loaded.'));
+        },
+      });
+  }
+
+  protected selectOrganization(organizationId: string): void {
+    if (organizationId === this.activeOrganizationId()) {
+      return;
+    }
+
+    // Nothing of the previous organisation stays on screen.
+    this.activeOrganizationId.set(organizationId);
+    this.rooms.set([]);
+    this.bookings.set([]);
+    this.successMessage.set(null);
+    this.resetFormValues();
     this.loadData();
   }
 
+  protected displayTitle(booking: Booking): string {
+    return booking.detailsHidden || booking.title === null ? 'Booked' : booking.title;
+  }
+
+  /** Organisation endpoints say it; the original endpoints (demo mode) allow every change. */
+  protected canModify(booking: Booking): boolean {
+    return booking.canModify !== false;
+  }
+
   protected loadData(): void {
-    this.isLoading.set(true);
+    const generation = ++this.loadGeneration;
+    const scope = this.currentScope();
+
     this.errorMessage.set(null);
     this.successMessage.set(null);
 
+    if (this.auth.status() === 'signed-in' && scope === null) {
+      // Signed in without an organisation: there is nothing to show.
+      this.isLoading.set(false);
+      return;
+    }
+
+    this.isLoading.set(true);
+
     forkJoin({
-      rooms: this.bookingApiService.getRooms(),
-      bookings: this.bookingApiService.getBookings(),
+      rooms: this.bookingApiService.getRooms(scope),
+      bookings: this.bookingApiService.getBookings(scope),
     })
       .pipe(
         finalize(() => {
-          this.isLoading.set(false);
+          if (generation === this.loadGeneration) {
+            this.isLoading.set(false);
+          }
         }),
       )
       .subscribe({
         next: ({ rooms, bookings }) => {
+          if (generation !== this.loadGeneration) {
+            return;
+          }
+
           this.rooms.set(rooms);
           this.bookings.set(this.sortBookings(bookings));
 
@@ -127,6 +292,10 @@ export class App implements OnInit {
           }
         },
         error: (error: unknown) => {
+          if (generation !== this.loadGeneration) {
+            return;
+          }
+
           this.errorMessage.set(
             this.getErrorMessage(
               error,
@@ -158,11 +327,13 @@ export class App implements OnInit {
     };
 
     const editingBookingId = this.editingBookingId();
+    const scope = this.currentScope();
+    const organizationId = this.activeOrganizationId();
 
     const operation =
       editingBookingId === null
-        ? this.bookingApiService.createBooking(request)
-        : this.bookingApiService.updateBooking(editingBookingId, request);
+        ? this.bookingApiService.createBooking(request, scope)
+        : this.bookingApiService.updateBooking(editingBookingId, request, scope);
 
     this.isSaving.set(true);
 
@@ -174,6 +345,11 @@ export class App implements OnInit {
       )
       .subscribe({
         next: (savedBooking) => {
+          if (organizationId !== this.activeOrganizationId()) {
+            // The user switched organisation while it was being saved.
+            return;
+          }
+
           if (editingBookingId === null) {
             this.bookings.update((bookings) => this.sortBookings([...bookings, savedBooking]));
           } else {
@@ -206,8 +382,8 @@ export class App implements OnInit {
 
     this.bookingForm.reset({
       roomId: booking.roomId,
-      title: booking.title,
-      bookedBy: booking.bookedBy,
+      title: booking.title ?? '',
+      bookedBy: booking.bookedBy ?? '',
       startLocal: this.toDateTimeLocalValue(booking.startUtc),
       endLocal: this.toDateTimeLocalValue(booking.endUtc),
     });
@@ -234,8 +410,10 @@ export class App implements OnInit {
     this.errorMessage.set(null);
     this.successMessage.set(null);
 
+    const organizationId = this.activeOrganizationId();
+
     this.bookingApiService
-      .deleteBooking(booking.id)
+      .deleteBooking(booking.id, this.currentScope())
       .pipe(
         finalize(() => {
           this.deletingBookingId.set(null);
@@ -243,6 +421,10 @@ export class App implements OnInit {
       )
       .subscribe({
         next: () => {
+          if (organizationId !== this.activeOrganizationId()) {
+            return;
+          }
+
           this.bookings.update((bookings) => bookings.filter((item) => item.id !== booking.id));
 
           this.pendingDeleteBookingId.set(null);
@@ -251,12 +433,20 @@ export class App implements OnInit {
             this.resetFormValues();
           }
 
-          this.successMessage.set(`"${booking.title}" was deleted.`);
+          this.successMessage.set(`"${this.displayTitle(booking)}" was deleted.`);
         },
         error: (error: unknown) => {
           this.errorMessage.set(this.getErrorMessage(error, 'The booking could not be deleted.'));
         },
       });
+  }
+
+  private currentScope(): BookingScope {
+    const organizationId = this.activeOrganizationId();
+
+    return this.auth.status() === 'signed-in' && organizationId !== null
+      ? { organizationId }
+      : null;
   }
 
   private resetFormValues(): void {
@@ -307,6 +497,10 @@ export class App implements OnInit {
   }
 
   private getErrorMessage(error: unknown, fallbackMessage: string): string {
+    if (error instanceof SignInRequiredError) {
+      return 'Your Microsoft sign-in has expired. Sign in again.';
+    }
+
     if (!(error instanceof HttpErrorResponse)) {
       return fallbackMessage;
     }
@@ -315,14 +509,21 @@ export class App implements OnInit {
       return 'The booking API could not be reached. Check that the .NET API is running.';
     }
 
+    if (error.status === 401) {
+      return this.auth.status() === 'signed-in'
+        ? 'The API did not accept your sign-in. Sign out and sign in again.'
+        : 'The API requires sign-in. Sign in with Microsoft, or start the API in its Development demo mode (LegacyApi__AllowAnonymous=true).';
+    }
+
     if (typeof error.error !== 'object' || error.error === null) {
       return fallbackMessage;
     }
 
     const problem = error.error as ApiProblem;
+    const knownMessage = problem.code === undefined ? undefined : KNOWN_PROBLEMS[problem.code];
 
-    if (problem.code === 'booking_overlap') {
-      return 'The selected room is already booked during that time period.';
+    if (knownMessage !== undefined) {
+      return knownMessage;
     }
 
     if (problem.errors !== undefined) {

@@ -37,7 +37,8 @@ flowchart LR
 
     phone -- "sign-in (PKCE)" --> entra
     phone -- "HTTPS, or HTTP to localhost via USB<br/>Bearer access token" --> api
-    web -- "/api/rooms, /api/bookings<br/>no token (demo mode only)" --> api
+    web -- "sign-in (PKCE, redirect)" --> entra
+    web -- "signed in: /api/organizations/…<br/>Bearer token, same origin via proxy<br/>signed out: /api/rooms, /api/bookings<br/>no token (demo mode only)" --> api
     api -- "signing keys (OpenID metadata)" --> entra
     api -- "EF Core" --> db
 ```
@@ -69,7 +70,7 @@ src/MeetingRoomBooking.Api/
     Bookings/                     Bookings
     Audit/                        Audit event entity
     ApiProblems.cs                Problem Details with stable error codes
-src/meeting-room-booking-web/     Angular 21 client (original assignment UI)
+src/meeting-room-booking-web/     Angular 21 client: demo mode, or Microsoft sign-in and organisation bookings
 tests/MeetingRoomBooking.Api.IntegrationTests/
 tools/RoomBooking.DatabaseTool/   CLI for backup/restore                  [Manual]
 scripts/                          Start-Local, Backup-Local, Restore-Local [Manual]
@@ -343,7 +344,7 @@ Code: `InvitationService`, [`InvitationToken.cs`](../src/MeetingRoomBooking.Api/
 - Members may only change their own bookings, and see only their own
   bookings' title and "booked by" (`MaySeeDetails`; [ADR 0006](adr/0006-booking-details-hidden-from-members.md)).
 
-**Idempotent creation [Tested, In review]** ([ADR 0005](adr/0005-idempotent-booking-creation.md)).
+**Idempotent creation [Tested]** ([ADR 0005](adr/0005-idempotent-booking-creation.md)).
 Both `POST …/bookings` endpoints accept an optional `Idempotency-Key` (a GUID).
 Inside the same `BEGIN IMMEDIATE` transaction, `CreateAsync` first
 reauthorizes the caller, then (`ReplayAsync`) deletes keys older than 24 hours
@@ -422,8 +423,14 @@ configuration), and performance under load.
   → `http://localhost:5003`. Set `Entra__ApiClientId` for signed-in endpoints.
 - **Database location:** see [below](#which-database-file-the-api-uses).
 - **Web client:** `npm --prefix src/meeting-room-booking-web start` →
-  `http://localhost:4200`, proxied to the API. It calls the legacy endpoints
-  without a token, so it needs `LegacyApi:AllowAnonymous=true` (Development only).
+  `http://localhost:4200`, proxied to the API. Signed out it calls the legacy
+  endpoints without a token, so it needs `LegacyApi:AllowAnonymous=true`
+  (Development only). With `public/auth-config.json` it offers Microsoft
+  sign-in and books in the user's organisations
+  ([client README](../src/meeting-room-booking-web/README.md),
+  [ADR 0007](adr/0007-browser-sign-in-for-the-angular-client.md)) [Tested]
+  with a fake MSAL client; [Manual] a real browser sign-in, not run yet (needs
+  the SPA redirect URI in Entra).
 - **CI:** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) builds and
   tests backend and frontend on every push to `main` and every pull request.
 - **Deployment: [Not implemented]** in this repository. There is no
@@ -555,9 +562,13 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
   persistent disk.
 - **Sign-in needs the internet.** Entra is an external identity provider;
   fully offline sign-in is not possible with this design.
-- **The Angular web client has no sign-in.** It only works with the
-  Development-only anonymous mode of the legacy endpoints. CORS also does not
-  allow the `Authorization` header yet.
+- **The Angular client's sign-in has not been run against Entra.** It is
+  unit-tested with a fake MSAL client and sends a correct authorization
+  request (checked in a browser on 2026-10-28), but the client registration
+  has no SPA redirect URI yet, so a full sign-in has not happened. It books
+  only; organisation administration is in the mobile app. Its production
+  build has no proxy and would need the API on the same origin or CORS that
+  allows `Authorization` ([ADR 0007](adr/0007-browser-sign-in-for-the-angular-client.md)).
 - **No deployment or production configuration in the repository.** Before
   a deployment, at least:
   - Listen on HTTPS only, or make sure the HTTPS port is known (Kestrel
