@@ -296,3 +296,6 @@ _NCrunch_*
 OpenCover/
 ASALocalRun/
 MigrationBackup/
+
+# Demo database created by scripts/Start-Demo.ps1
+.demo/

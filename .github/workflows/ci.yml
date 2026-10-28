@@ -46,6 +46,12 @@ jobs:
           --configuration Release
           --no-build
 
+      # The credential-free demo from the README: fresh demo database,
+      # synthetic bookings through the API, then stop (PowerShell 7 on Linux).
+      - name: Demo script smoke test
+        shell: pwsh
+        run: ./scripts/Start-Demo.ps1 -Reset -StopAfterSeed
+
   frontend:
     name: Frontend build and tests
     runs-on: ubuntu-latest
