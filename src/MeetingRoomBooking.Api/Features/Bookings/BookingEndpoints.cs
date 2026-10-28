@@ -90,6 +90,7 @@ public static class BookingEndpoints
 
     private static async Task<IResult> GetAllAsync(
         BookingService service,
+        CurrentOrganization organization,
         CancellationToken cancellationToken)
     {
         var bookings =
@@ -97,10 +98,13 @@ public static class BookingEndpoints
                 LegacyOrganization.Id,
                 cancellationToken);
 
+        var viewer =
+            ViewerOf(organization);
+
         var responses =
             bookings
                 .Select(
-                    BookingResponse.FromBooking)
+                    booking => BookingResponse.FromBooking(booking, viewer))
                 .ToArray();
 
         return Results.Ok(
@@ -110,6 +114,7 @@ public static class BookingEndpoints
     private static async Task<IResult> GetByIdAsync(
         int bookingId,
         BookingService service,
+        CurrentOrganization organization,
         CancellationToken cancellationToken)
     {
         var booking =
@@ -126,7 +131,8 @@ public static class BookingEndpoints
 
         return Results.Ok(
             BookingResponse.FromBooking(
-                booking));
+                booking,
+                ViewerOf(organization)));
     }
 
     private static async Task<IResult> CreateAsync(
@@ -173,7 +179,8 @@ public static class BookingEndpoints
             response,
             $"/api/bookings/{booking.Id}",
             BookingResponse.FromBooking(
-                booking));
+                booking,
+                ViewerOf(organization)));
     }
 
     private static async Task<IResult> UpdateAsync(
@@ -208,7 +215,8 @@ public static class BookingEndpoints
         return Results.Ok(
             BookingResponse.FromBooking(
                 GetSuccessfulBooking(
-                    result)));
+                    result),
+                ViewerOf(organization)));
     }
 
     private static async Task<IResult> DeleteAsync(
@@ -411,6 +419,13 @@ public static class BookingEndpoints
             : request;
 
     // Shared
+
+    /// <summary>The signed-in member on the original endpoints; null in anonymous demo mode.</summary>
+    private static BookingActor? ViewerOf(
+        CurrentOrganization organization) =>
+        organization.Caller is { } caller
+            ? BookingActor.From(caller)
+            : null;
 
     /// <summary>
     /// 201 for a new booking. A repeated Idempotency-Key gets 200 with the

@@ -7,25 +7,39 @@ public sealed record SaveBookingRequest(
     DateTimeOffset StartUtc,
     DateTimeOffset EndUtc);
 
+/// <summary>
+/// A booking as the original endpoints return it. Their shape is fixed, so
+/// a booking whose details the caller may not see (see
+/// <see cref="BookingActor.MaySeeDetails"/>) has a null title and
+/// "booked by" instead of an extra property.
+/// </summary>
 public sealed record BookingResponse(
     int Id,
     int RoomId,
     string RoomName,
-    string Title,
-    string BookedBy,
+    string? Title,
+    string? BookedBy,
     DateTimeOffset StartUtc,
     DateTimeOffset EndUtc,
     DateTimeOffset CreatedUtc)
 {
+    /// <param name="viewer">
+    /// The signed-in member asking, or null in anonymous demo mode, which
+    /// shows every booking in full.
+    /// </param>
     public static BookingResponse FromBooking(
-        Booking booking)
+        Booking booking,
+        BookingActor? viewer)
     {
+        var showDetails =
+            viewer?.MaySeeDetails(booking) ?? true;
+
         return new BookingResponse(
             Id: booking.Id,
             RoomId: booking.RoomId,
             RoomName: booking.Room.Name,
-            Title: booking.Title,
-            BookedBy: booking.BookedBy,
+            Title: showDetails ? booking.Title : null,
+            BookedBy: showDetails ? booking.BookedBy : null,
             StartUtc: booking.StartUtc,
             EndUtc: booking.EndUtc,
             CreatedUtc: booking.CreatedUtc);
@@ -37,37 +51,48 @@ public sealed record BookingResponse(
 /// what the caller may do with it, so a client can show or hide its edit
 /// and delete actions. The API still checks every change itself.
 /// </summary>
+/// <param name="Title">Null when <paramref name="DetailsHidden"/>.</param>
+/// <param name="BookedBy">Null when <paramref name="DetailsHidden"/>.</param>
 /// <param name="CreatedByCurrentUser">The caller created it.</param>
 /// <param name="CanModify">The caller may change and delete it (see <see cref="BookingActor.MayModify"/>).</param>
+/// <param name="DetailsHidden">
+/// The caller is a Member and someone else made the booking: only its room
+/// and period are shown (see <see cref="BookingActor.MaySeeDetails"/>).
+/// </param>
 public sealed record OrganizationBookingResponse(
     int Id,
     int RoomId,
     string RoomName,
-    string Title,
-    string BookedBy,
+    string? Title,
+    string? BookedBy,
     DateTimeOffset StartUtc,
     DateTimeOffset EndUtc,
     DateTimeOffset CreatedUtc,
     DateTimeOffset? UpdatedUtc,
     bool CreatedByCurrentUser,
-    bool CanModify)
+    bool CanModify,
+    bool DetailsHidden)
 {
     public static OrganizationBookingResponse FromBooking(
         Booking booking,
         BookingActor actor)
     {
+        var showDetails =
+            actor.MaySeeDetails(booking);
+
         return new OrganizationBookingResponse(
             Id: booking.Id,
             RoomId: booking.RoomId,
             RoomName: booking.Room.Name,
-            Title: booking.Title,
-            BookedBy: booking.BookedBy,
+            Title: showDetails ? booking.Title : null,
+            BookedBy: showDetails ? booking.BookedBy : null,
             StartUtc: booking.StartUtc,
             EndUtc: booking.EndUtc,
             CreatedUtc: booking.CreatedUtc,
             UpdatedUtc: booking.UpdatedUtc,
             CreatedByCurrentUser: booking.CreatedByUserId == actor.UserId,
-            CanModify: actor.MayModify(booking));
+            CanModify: actor.MayModify(booking),
+            DetailsHidden: !showDetails);
     }
 }
 

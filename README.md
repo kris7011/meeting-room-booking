@@ -619,11 +619,13 @@ The membership and role are read from the database for every request; nothing in
 
 | Role | Rooms and bookings |
 | --- | --- |
-| Owner | Search, book, change and delete every booking of the organisation |
+| Owner | Search, book, see, change and delete every booking of the organisation |
 | Admin | As Owner |
-| Member | Search and book; change and delete only bookings they made (`403 booking_permission_denied` otherwise) |
+| Member | Search and book; change and delete only bookings they made (`403 booking_permission_denied` otherwise). Other people's bookings show their room and time, but not their title or who booked them |
 
-A new booking records the signed-in user as its creator (`CreatedByUserId`) and every change the user who made it (`UpdatedByUserId`, `UpdatedUtc`). `bookedBy` defaults to the user's display name when it is left out. Bookings made before sign-in have no creator, so only Owners and Admins can change them. The organisation responses add `createdByCurrentUser` and `canModify`, so a client can show or hide its edit and delete actions; the API checks every change itself regardless.
+Booking details are private: a Member gets another person's booking with `title` and `bookedBy` set to `null`, and the organisation endpoints add `detailsHidden: true`. Everyone can still see which room is taken when. Owners and Admins see every booking in full, and the anonymous demo mode shows everything ([ADR 0006](docs/adr/0006-booking-details-hidden-from-members.md)).
+
+A new booking records the signed-in user as its creator (`CreatedByUserId`) and every change the user who made it (`UpdatedByUserId`, `UpdatedUtc`). `bookedBy` defaults to the user's display name when it is left out. Bookings made before sign-in have no creator, so only Owners and Admins can change them. The organisation responses add `createdByCurrentUser`, `canModify` and `detailsHidden`, so a client can show or hide its edit and delete actions; the API checks every change itself regardless.
 
 The existing booking rules are unchanged: validation, the start in the future, the overlap triggers and `409 booking_overlap`. Booking changes now run in one `BEGIN IMMEDIATE` transaction each, so checking the room and writing the booking cannot be interleaved with another writer.
 

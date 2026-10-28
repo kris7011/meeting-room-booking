@@ -207,6 +207,11 @@ Every organisation endpoint is mapped inside `MapOrganizationGroup`, under
   crosses the tenant boundary.
 - **Per-object rules** live in the service: `BookingActor.MayModify` lets
   Owners and Admins change any booking, Members only their own.
+- **Booking details are private to Owners, Admins and the booker.** Every
+  member sees which room is booked when, but `BookingActor.MaySeeDetails`
+  removes the title and "booked by" from another person's booking before a
+  Member gets it (`detailsHidden: true`). Anonymous demo mode shows
+  everything ([ADR 0006](adr/0006-booking-details-hidden-from-members.md)).
 - **Changes check again under the write lock.** The filter's `OrganizationCaller`
   is a snapshot from the start of the request. Every organisation change
   (rooms, bookings, rename, invitation revoke, roles, removal) first calls
@@ -219,9 +224,9 @@ Every organisation endpoint is mapped inside `MapOrganizationGroup`, under
 
 | Role | Rooms and bookings | Administration |
 | --- | --- | --- |
-| Owner | Book; change/delete any booking | Rooms, invitations (Admin, Member), roles, remove members, rename |
+| Owner | Book; see, change and delete any booking | Rooms, invitations (Admin, Member), roles, remove members, rename |
 | Admin | As Owner | Rooms, member list, invite Members, revoke Member invitations |
-| Member | Search and book; change/delete own bookings | Leave the organisation |
+| Member | Search and book; change/delete own bookings; others' bookings without title and booked-by | Leave the organisation |
 
 The full endpoint-by-role matrix, with the test that proves each cell, is in
 [role-permission-matrix.md](role-permission-matrix.md). `RolePermissionMatrixTests`
@@ -335,7 +340,8 @@ Code: `InvitationService`, [`InvitationToken.cs`](../src/MeetingRoomBooking.Api/
 - The room must be active and in the caller's organisation.
 - Overlap check excludes the booking being updated; adjacent bookings
   (10:00–11:00 after 09:00–10:00) are allowed.
-- Members may only change their own bookings.
+- Members may only change their own bookings, and see only their own
+  bookings' title and "booked by" (`MaySeeDetails`; [ADR 0006](adr/0006-booking-details-hidden-from-members.md)).
 
 **Idempotent creation [Tested, In review]** ([ADR 0005](adr/0005-idempotent-booking-creation.md)).
 Both `POST …/bookings` endpoints accept an optional `Idempotency-Key` (a GUID).
