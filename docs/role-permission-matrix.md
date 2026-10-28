@@ -17,7 +17,7 @@ temporary SQLite file with tokens signed by a test-only key
 2. **User** (`OrganizationAccessService.ResolveUserAsync`): not registered → `403 user_not_registered`; disabled → `403 user_disabled`.
 3. **Membership** (`OrganizationAccessFilter`): not a member, or no such organisation → `404 organization_not_found` (the two are indistinguishable).
 4. **Role** (`OrganizationRoleRequirement` metadata, from `RequireOwnerOrAdmin` / `RequireOrganizationRole`): `403 organization_permission_denied`.
-5. **Per-object rule** in the service (own booking, which invitation role, removing someone else): `403` with a specific code.
+5. **Per-object rule** in the service (own booking, which invitation role, removing someone else): `403` with a specific code. Reading a booking is never refused inside the organisation, but a Member gets another person's booking without its title and booked-by ([ADR 0006](adr/0006-booking-details-hidden-from-members.md)).
 6. **Again under the write lock** (`OrganizationAccessService.ReauthorizeAsync`): every change repeats steps 2–4 inside its `BEGIN IMMEDIATE` transaction, before it reads or writes anything else, and step 5 uses the role read there. A caller disabled, removed or demoted while the request was running gets the same answer as in steps 2–4 and nothing is written ([ADR 0004](adr/0004-reauthorize-mutations-under-the-write-lock.md)).
 
 Roles are read from the database on every request, never from the token.
@@ -41,7 +41,8 @@ per row send real requests. Where a row lists no request test for a role
 | `PUT /rooms/{roomId}` | ✓ | ✓ | – | filter: Owner, Admin | `OrganizationManagementTests.EditingARoom_KeepsItsBookings` (Admin); `…OwnersAndAdmins_ManageRooms_MembersOnlyUseThem` (Member) |
 | `POST /rooms/{roomId}/archive` | ✓ | ✓ | – | filter: Owner, Admin; service: no upcoming bookings | `OrganizationManagementTests.ArchivingARoom_KeepsPastBookings_AndRemovesItFromSearchAndBooking`; `…OwnersAndAdmins_ManageRooms_MembersOnlyUseThem` (Member) |
 | `POST /rooms/{roomId}/restore` | ✓ | ✓ | – | filter: Owner, Admin; service: name still free | `OrganizationManagementTests.ArchivingARoom_…` (Admin), `…RestoringARoom_WhoseNameIsTakenAgain_IsRefused`; `RolePermissionMatrixTests.Member_CannotRestoreRooms…` (Member) |
-| `GET /bookings`, `GET /bookings/{id}`, `POST /bookings` | ✓ | ✓ | ✓ | – | `OrganizationScopedAccessTests.Members_CanBookAndChangeTheirOwnBookings_ButNotOthers` |
+| `GET /bookings`, `GET /bookings/{id}` | all, in full | all, in full | all; title and booked-by only of their own | service: `BookingActor.MaySeeDetails` (`detailsHidden: true`, `title`/`bookedBy` null) | `BookingPrivacyTests` (all), `OrganizationScopedAccessTests.Members_CanBookAndChangeTheirOwnBookings_ButNotOthers` |
+| `POST /bookings` | ✓ | ✓ | ✓ | – | `OrganizationScopedAccessTests.Members_CanBookAndChangeTheirOwnBookings_ButNotOthers` |
 | `PUT`/`DELETE /bookings/{id}` | any | any | own only | service: `BookingActor.MayModify` (`403 booking_permission_denied`) | `OrganizationScopedAccessTests.Members_CanBookAndChangeTheirOwnBookings_ButNotOthers`, `…OwnersAndAdmins_CanChangeAndDeleteEveryBookingOfTheirOrganization`, `…BookingsFromBeforeSignIn_CanOnlyBeChangedByOwnersAndAdmins` |
 | `GET /members` | ✓ | ✓ | – | filter: Owner, Admin | `MemberManagementTests.OwnersAndAdmins_SeeTheMembers_MembersDoNot` |
 | `PUT /members/{userId}/role` | ✓ | – | – | filter: Owner; service: re-reads the caller's role under the write lock, last Owner | `MemberManagementTests.Owner_ChangesRoles_AndTheChangeIsAudited`, `…Admin_CannotMakeThemselvesOrAnyoneOwner`; `RolePermissionMatrixTests.Member_CannotRestoreRoomsRenameOrChangeAnotherMembersRole` |
@@ -55,7 +56,9 @@ registered, enabled user and no membership; the list contains only the
 caller's own memberships (`OrganizationManagementTests.AUser_CanBeAMemberOfSeveralOrganizations`,
 `RolePermissionMatrixTests.NonMembers_CannotTellAnExistingOrganizationFromAMissingOne`).
 The original `/api/rooms` and `/api/bookings` apply the same checks to the
-legacy organisation (`OrganizationScopedAccessTests.OriginalEndpoints_RequireALegacyMember_WhenAnonymousAccessIsOff`).
+legacy organisation (`OrganizationScopedAccessTests.OriginalEndpoints_RequireALegacyMember_WhenAnonymousAccessIsOff`),
+including the hidden booking details, there as null values in the unchanged response shape
+(`BookingPrivacyTests.OriginalEndpoints_HideTheSameFields_FromSignedInMembers_InTheirFixedShape`).
 
 ## Callers without access
 

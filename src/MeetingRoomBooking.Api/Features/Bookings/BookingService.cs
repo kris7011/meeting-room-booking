@@ -85,6 +85,22 @@ public sealed record BookingActor(
         Booking booking) =>
         Role is MembershipRole.Owner or MembershipRole.Admin
         || booking.CreatedByUserId == UserId;
+
+    /// <summary>
+    /// Owners and Admins see the title and "booked by" of every booking of
+    /// their organisation; Members only of bookings they created. Every
+    /// member sees the room and the period of all bookings, so they can see
+    /// when a room is taken. Bookings from before sign-in have no creator, so
+    /// their details are hidden from Members too.
+    /// </summary>
+    /// <remarks>
+    /// The same rule as <see cref="MayModify"/> today, kept separate because
+    /// seeing and changing are different permissions.
+    /// </remarks>
+    public bool MaySeeDetails(
+        Booking booking) =>
+        Role is MembershipRole.Owner or MembershipRole.Admin
+        || booking.CreatedByUserId == UserId;
 }
 
 /// <summary>

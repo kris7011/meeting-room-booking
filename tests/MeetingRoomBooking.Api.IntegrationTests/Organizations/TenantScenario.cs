@@ -13,13 +13,13 @@ using static MeetingRoomBooking.Api.IntegrationTests.Authentication.SignedInRequ
 namespace MeetingRoomBooking.Api.IntegrationTests.Organizations;
 
 /// <summary>
-/// Two organisations on one isolated test database, with the anonymous
-/// legacy API switched off (the API's default):
+/// Two organisations on one isolated test database:
 /// <list type="bullet">
 /// <item>Legacy, with an Owner, an Admin and a Member who joined by invitation.</item>
 /// <item>"Other Org", owned by someone who is not a member of Legacy, with one room.</item>
 /// </list>
-/// A registered outsider belongs to neither.
+/// A registered outsider belongs to neither. The anonymous legacy API is
+/// switched off (the API's default) unless a test asks for it.
 /// </summary>
 public sealed class TenantScenario
     : IDisposable
@@ -91,11 +91,17 @@ public sealed class TenantScenario
 
     public int OtherRoomId { get; private set; }
 
-    public static async Task<TenantScenario> CreateAsync()
+    /// <param name="allowAnonymousLegacyApi">
+    /// Switches the original endpoints' anonymous demo mode on, for tests
+    /// that need a booking without a creator (one made before sign-in).
+    /// The organisation endpoints still require sign-in.
+    /// </param>
+    public static async Task<TenantScenario> CreateAsync(
+        bool allowAnonymousLegacyApi = false)
     {
         var scenario =
             new TenantScenario(
-                new MeetingRoomBookingApiFactory { AllowAnonymousLegacyApi = false });
+                new MeetingRoomBookingApiFactory { AllowAnonymousLegacyApi = allowAnonymousLegacyApi });
 
         try
         {
