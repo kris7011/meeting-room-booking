@@ -16,8 +16,9 @@ The mobile client has its own walkthrough in
 | **[In review]** | Implemented on an open pull request, not yet on `main`. |
 | **[Not implemented]** | Proposed or future work. Nothing in the code does this yet. |
 
-Last reviewed: 2026-10-24, after backend PR #13 was merged into `main`
-(merge commit `c39ea4a`; validated feature commit `228e1eb`).
+Last reviewed: 2026-10-28, after PRs #19 (booking privacy), #20 (Angular
+patches), #21 (Angular sign-in) and #22 (journey test, demo script) were
+merged into `main`.
 
 ---
 
@@ -107,7 +108,7 @@ this order:
 
 Before the app accepts requests it runs `InitialiseDatabaseAsync` (backup,
 migrate, verify; see [section 7](#7-persistence)) and
-`ApplyLegacyOwnerBootstrapAsync` (see [section 8.5](#85-the-first-owner-of-the-legacy-organisation)).
+`ApplyLegacyOwnerBootstrapAsync` (see [section 8.5](#85-the-first-owner-of-the-legacy-organisation-tested)).
 
 ### Example: a member books a room
 
@@ -396,7 +397,10 @@ clients branch on `code`, while `title` and
 | Restored API | Two-tenant data backed up while the API runs, restored, and served by a second API: same rows, 401 without a valid token, 404 for non-members, roles intact, original unchanged | `RestoredDatabaseApiTests` [Tested] |
 | Environment defaults | Production vs Development: Swagger only in Development; HTTP redirected to HTTPS outside Development (and not redirected without a known HTTPS port); an unhandled exception is a generic 500 problem without its details in every environment; CORS headers only in Development | `ProductionDefaultsTests`, `CorsTests` [Tested] |
 | Safety | `TestDatabaseGuard` refuses any database outside the temp folder or inside the API project | `TestDatabaseGuard` |
-| Web client | Angular service and component tests (Vitest), run in CI | `src/meeting-room-booking-web` |
+| Booking privacy | Members get others' bookings without title and booked-by; Owners/Admins in full; role change applies to the next request; original endpoints keep their shape | `BookingPrivacyTests` [Tested] |
+| Documented journey | The README's demonstration sequence as one test: organisation, rooms, invitations, search, booking, overlap, privacy, roles, last Owner, archiving, isolation, removal | `DocumentedJourneyTests` [Tested] |
+| Demo script | `scripts/Start-Demo.ps1 -Reset -StopAfterSeed` with PowerShell 7 on Linux: builds, starts, seeds three bookings, stops | CI step [Tested] |
+| Web client | Angular services, sign-in (`AuthService` with a fake MSAL client, settings file, interceptor) and the page in demo and signed-in mode (Vitest, 31 tests), run in CI | `src/meeting-room-booking-web` [Tested] |
 | End to end | The mobile repository's Playwright suite starts this API on a temporary database | room-booking-mobile `e2e/` |
 
 The final Phase 4A validation on 2026-10-24 reported **303 passing backend tests**
@@ -412,6 +416,10 @@ changed): **349 passing** on 2026-10-27 (Release, Windows), on `main` at
 Phase 5D added `BookingIdempotencyTests` (28 tests) and a CORS test:
 **378 passing** on 2026-10-27 (Release, Windows), on `main` at `a5b3f91`
 plus that change.
+On 2026-10-28, `BookingPrivacyTests` (6, all failing before the change) made
+**384** (PR #19), and `DocumentedJourneyTests` **385** (PR #22), in CI and
+locally (Release, Windows). The Angular suite went from 8 to **31** tests with
+browser sign-in (PR #21).
 
 **Not covered by automated tests:** real Entra tokens and metadata, a physical
 device, a real deployment (TLS certificates, a reverse proxy, hosting
@@ -594,6 +602,11 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
   running instance locks the output, so a second instance fails at the build.
 - **No account linking**, no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
+- **E-mail one-time-code sign-in (Entra External ID) is not implemented.** It
+  was part of the architecture plan of 21 October 2026, but needs an External
+  ID tenant, which does not exist. Microsoft personal accounts (Outlook.com,
+  Hotmail) sign in through Microsoft's own account system; Room Booking
+  stores no passwords. `UserIdentities` already allows a second provider.
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
 - **Booking Idempotency-Keys last 24 hours.** A retry after that is a new
   request (the overlap rule still refuses a second booking of the same slot).
