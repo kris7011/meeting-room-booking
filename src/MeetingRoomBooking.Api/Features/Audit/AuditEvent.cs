@@ -21,7 +21,8 @@ public enum AuditEventType
     RoomCreated,
     RoomUpdated,
     RoomArchived,
-    RoomRestored
+    RoomRestored,
+    IdentityLinked
 }
 
 /// <summary>

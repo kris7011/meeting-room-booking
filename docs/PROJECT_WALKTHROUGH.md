@@ -349,6 +349,21 @@ Code: `InvitationService`, [`InvitationToken.cs`](../src/MeetingRoomBooking.Api/
   invited address: the token proves the link arrived, the e-mail proves who
   opened it. The inviter must still have the right to invite that role.
 
+### 8.3a Linking a second identity [Tested]
+Code: [`IdentityLinkService.cs`](../src/MeetingRoomBooking.Api/Features/Users/IdentityLinkService.cs),
+[`IdentityLinkRequest.cs`](../src/MeetingRoomBooking.Api/Features/Users/IdentityLinkRequest.cs).
+
+- Three requests: **start** as the existing user (a one-time code, hash
+  stored, 10 minutes), **claim** with the code as the identity to add (proof
+  of control; nothing linked), **confirm** as the existing user again (the
+  `UserIdentities` row and an `IdentityLinked` audit event).
+- Each step is one `BEGIN IMMEDIATE` transaction. A claimed code is useless
+  to another identity; repeats by the same caller return the same answer;
+  the `(Issuer, Subject)` index stops a confirmation racing a registration.
+- An identity that is already a user is never merged
+  (`identity_belongs_to_another_user`), and nothing is ever linked because
+  e-mail addresses match. Why: [ADR 0009](adr/0009-explicit-identity-linking.md).
+
 ### 8.4 Bookings [Tested]
 `BookingService.CreateAsync` / `UpdateAsync` / `DeleteAsync`:
 
@@ -402,6 +417,7 @@ clients branch on `code`, while `title` and
 | --- | --- | --- |
 | API integration | The real app via `WebApplicationFactory`, environment `Testing`, a temporary SQLite file per factory, `Pooling=False` | `MeetingRoomBookingApiFactory` |
 | Authentication | Tokens signed with a test-only RSA key; production validation code otherwise unchanged | `EntraTestTokens`, `CurrentUserEndpointTests` |
+| Identity linking | Start, claim and confirm with Entra and External ID test tokens; nothing linked before confirmation; expiry, cancellation, a restart cancelling the old code; never merging a user; another user's request; 8 parallel claims (one wins) and 6 parallel confirmations (one identity); only the code's hash stored | `IdentityLinkingTests` |
 | External ID | A second test key and metadata in the documented external-tenant issuer format: accepted tokens, the provider stored, rejection of the wrong audience, issuer, tenant or key, the e-mail rule (off by default, never set by a token), invitations, start-up validation | `ExternalIdTestTokens`, `ExternalIdAuthenticationTests` |
 | Time | `TestTimeProvider` replaces `TimeProvider`, so "must start in the future" tests do not decay | `BookingTimeValidationTests` |
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
@@ -437,7 +453,9 @@ On 2026-10-28, `BookingPrivacyTests` (6, all failing before the change) made
 locally (Release, Windows). The Angular suite went from 8 to **31** tests with
 browser sign-in (PR #21).
 On 2026-10-29, `ExternalIdAuthenticationTests` (34) made **419** (Release,
-Windows), on `main` at `5fd17f1` plus the External ID change.
+Windows), on `main` at `5fd17f1` plus the External ID change (PR #26), and
+`IdentityLinkingTests` (23) **442**, on `main` at `2f1648c` plus identity
+linking.
 
 **Not covered by automated tests:** real Entra and External ID tokens and metadata, a physical
 device, a real deployment (TLS certificates, a reverse proxy, hosting
@@ -627,7 +645,7 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
   accidentally different copy, not a deliberately crafted one.
 - **One `Start-Local.ps1` per checkout.** It builds Debug in place, and a
   running instance locks the output, so a second instance fails at the build.
-- **No account linking**, no audit-log endpoint, no pagination, no general
+- **Identity linking has no unlinking**, and users are never merged; no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
 - **E-mail one-time-code sign-in (Entra External ID) has not met Microsoft
   yet.** The API side is implemented and tested with test tokens; no external

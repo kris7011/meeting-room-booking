@@ -63,6 +63,7 @@ builder.Services.AddScoped<CurrentOrganization>();
 builder.Services.AddScoped<OrganizationService>();
 builder.Services.AddScoped<RoomAdministrationService>();
 builder.Services.AddScoped<MembershipService>();
+builder.Services.AddScoped<IdentityLinkService>();
 
 // Microsoft Entra ID access tokens (Entra section in configuration). Every
 // organisation endpoint requires one, plus a membership of the organisation.
@@ -125,6 +126,7 @@ app.MapLegacyGroup("/api/bookings", legacyApiOptions, entraOptions)
     .MapBookingEndpoints();
 
 app.MapCurrentUserEndpoints(entraOptions);
+app.MapIdentityLinkEndpoints(entraOptions);
 app.MapInvitationEndpoints(entraOptions);
 
 // GET/POST /api/organizations: a registered user's organisations, and new

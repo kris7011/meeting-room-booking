@@ -403,6 +403,79 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Users.IdentityLinkRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("CancelledUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimedIssuer")
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimedProvider")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimedSubject")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ClaimedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClaimedVerifiedEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("CompletedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ExpiresUtc")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_IdentityLinkRequests_CodeHash");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_IdentityLinkRequests_PublicId");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_IdentityLinkRequests_UserId");
+
+                    b.ToTable("IdentityLinkRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_IdentityLinkRequests_Claim", "(\"ClaimedUtc\" IS NULL AND \"ClaimedProvider\" IS NULL AND \"ClaimedIssuer\" IS NULL AND \"ClaimedSubject\" IS NULL AND \"ClaimedVerifiedEmail\" IS NULL) OR (\"ClaimedUtc\" IS NOT NULL AND \"ClaimedProvider\" IN ('Entra', 'ExternalId') AND length(\"ClaimedIssuer\") > 0 AND length(\"ClaimedSubject\") > 0)");
+
+                            t.HasCheckConstraint("CK_IdentityLinkRequests_CodeHash", "length(\"CodeHash\") = 64 AND \"CodeHash\" NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_IdentityLinkRequests_Expiry", "\"ExpiresUtc\" > \"CreatedUtc\"");
+
+                            t.HasCheckConstraint("CK_IdentityLinkRequests_Outcome", "(\"CompletedUtc\" IS NULL OR \"ClaimedUtc\" IS NOT NULL) AND (\"CompletedUtc\" IS NULL OR \"CancelledUtc\" IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("MeetingRoomBooking.Api.Features.Users.User", b =>
                 {
                     b.Property<int>("Id")
@@ -606,6 +679,15 @@ namespace MeetingRoomBooking.Api.Data.Migrations
                     b.HasOne("MeetingRoomBooking.Api.Features.Organizations.Organization", null)
                         .WithMany()
                         .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MeetingRoomBooking.Api.Features.Users.IdentityLinkRequest", b =>
+                {
+                    b.HasOne("MeetingRoomBooking.Api.Features.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
