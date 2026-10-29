@@ -1,7 +1,8 @@
 # ADR 0007: Browser sign-in for the Angular client
 
 - **Status:** Accepted. Implemented and unit-tested; a real Microsoft sign-in
-  in the browser needs the SPA redirect URI in Entra and has not been run yet.
+  in the browser with a personal account was checked by hand on 2026-10-29
+  ([record](../testing.md#manual-browser-sign-in-check-2026-10-29)).
 - **Code:** `src/meeting-room-booking-web/src/app/core/auth/`
   (`auth-config.ts`, `msal-client.ts`, `auth.service.ts`, `auth.interceptor.ts`),
   `core/services/account-api.service.ts`, `core/services/booking-api.service.ts`, `app.ts`

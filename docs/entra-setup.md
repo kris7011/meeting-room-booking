@@ -67,8 +67,8 @@ The API needs its own app registration, separate from the mobile app's:
 2. **Manifest**: set `"requestedAccessTokenVersion": 2` (in the older manifest format `"accessTokenAcceptedVersion": 2`). Otherwise Entra issues v1.0 tokens, which this API rejects. Entra requires version 2 before personal accounts can be switched on, so for an existing registration set this first, then change `signInAudience` in the manifest.
 3. **Expose an API**: set the Application ID URI to `api://<API client ID>` and add the scope `access_as_user` (who can consent: admins and users).
 4. **Token configuration → Add optional claim → Access**: `email` and `xms_edov` (accept the prompt to add the Microsoft Graph `email` permission). Only needed for accepting invitations; see [Verified e-mail addresses](api-reference.md#verified-e-mail-addresses).
-5. In the **mobile app's** registration: **API permissions → Add a permission → My APIs → Room Booking API → Delegated → access_as_user**, and the same supported account types as the API. Grant admin consent if the tenant does not allow user consent.
-6. For users of other tenants: an administrator of each tenant must consent to the mobile app (and with it the API) before its users can sign in. Personal accounts consent for themselves on their first sign-in.
+5. In each **client** registration: **API permissions → Add a permission → My APIs → Room Booking API → Delegated → access_as_user**, and the same supported account types as the API. Grant admin consent if the tenant does not allow user consent. There are two clients, each with its own registration: the mobile app (platform *Mobile and desktop applications*, redirect URI `roombookingdev://auth`; see the mobile docs) and the Angular client (platform *Single-page application*, redirect URI `http://localhost:4200`; see its [README](../src/meeting-room-booking-web/README.md)).
+6. For users of other tenants: an administrator of each tenant must consent to each client (and with it the API) before its users can sign in. Personal accounts consent for themselves on their first sign-in, once per client.
 
 ### Not done yet
 

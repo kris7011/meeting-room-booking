@@ -83,8 +83,8 @@ exists to run the mobile UI in a browser for demos and end-to-end tests.
 | List, change, delete bookings | List, delete | – ³ | List, change, delete | Yes |
 | Booking details hidden from Members | "Optaget" | – (anonymous) | "Booked" | Enforced |
 
-¹ Implemented and unit-tested; a real browser sign-in needs an SPA redirect
-URI in Entra and has not been run yet. ² The Angular form books a chosen
+¹ Unit-tested, and signed in by hand in a browser with a personal Microsoft
+account on 2026-10-29 ([record](docs/testing.md#manual-browser-sign-in-check-2026-10-29)). ² The Angular form books a chosen
 room; the API refuses overlaps. ³ Against the live API, the web build searches
 and books; its in-memory demo also lists and deletes.
 
@@ -182,8 +182,9 @@ you control. The steps, and why none of the values is a secret, are in
   verified backups and restore to a *new* file:
   [docs/local-portability.md](docs/local-portability.md).
 - **Angular sign-in:** copy `src/meeting-room-booking-web/auth-config.example.json`
-  to `public/auth-config.json` and register `http://localhost:4200` as an SPA
-  redirect URI ([client README](src/meeting-room-booking-web/README.md)).
+  to `public/auth-config.json` and give the browser its own client
+  registration with `http://localhost:4200` as SPA redirect URI
+  ([client README](src/meeting-room-booking-web/README.md)).
 - **Android:** a development build of the mobile app, with the API reached
   over USB (`adb reverse`) or an HTTPS-hosted API
   ([mobile docs](https://github.com/kris7011/room-booking-mobile/blob/main/docs/api-targets.md)).
@@ -205,8 +206,9 @@ GitHub Actions runs the backend, Angular and demo checks on every pull
 request and push to `main`. No test opens the development database: a guard
 refuses any file outside the temp folder. Details: [docs/testing.md](docs/testing.md).
 
-Not automated: a real Microsoft sign-in (verified by hand on Android only),
-and the Angular client in a real browser against a signed-in API.
+Not automated: a real Microsoft sign-in, verified by hand on Android and in
+the Angular client in a browser
+([browser record](docs/testing.md#manual-browser-sign-in-check-2026-10-29)).
 
 ## Tech stack
 
@@ -254,9 +256,10 @@ are explained in the [developer walkthrough](docs/PROJECT_WALKTHROUGH.md).
 - **Not implemented:** e-mail one-time-code sign-in (External ID), account
   linking, sending invitation e-mails (an invitation link or token is shared
   by hand), audit-log endpoint, pagination, recurring bookings.
-- **Angular client:** no room search, no administration screens, and its
-  browser sign-in has not been run against Entra yet (see the matrix above).
-  A production build would need the API on the same origin.
+- **Angular client:** no room search and no administration screens. Its
+  browser sign-in has been run by hand with a personal account only, not a
+  work or school account. A production build would need the API on the same
+  origin.
 - **Reads use the access checked at the start of a request**; only changes
   re-check under the write lock.
 

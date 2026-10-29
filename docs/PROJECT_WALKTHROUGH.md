@@ -437,8 +437,10 @@ configuration), and performance under load.
   sign-in and books in the user's organisations
   ([client README](../src/meeting-room-booking-web/README.md),
   [ADR 0007](adr/0007-browser-sign-in-for-the-angular-client.md)) [Tested]
-  with a fake MSAL client; [Manual] a real browser sign-in, not run yet (needs
-  the SPA redirect URI in Entra).
+  with a fake MSAL client; [Manual] a real browser sign-in with a personal
+  Microsoft account on 2026-10-29: organisations, booking create, change and
+  delete, reload, sign-out and sign-in again
+  ([record](testing.md#manual-browser-sign-in-check-2026-10-29)).
 - **CI:** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) builds and
   tests backend and frontend on every push to `main` and every pull request.
 - **Deployment: [Not implemented]** in this repository. There is no
@@ -576,10 +578,11 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
   persistent disk.
 - **Sign-in needs the internet.** Entra is an external identity provider;
   fully offline sign-in is not possible with this design.
-- **The Angular client's sign-in has not been run against Entra.** It is
-  unit-tested with a fake MSAL client and sends a correct authorization
-  request (checked in a browser on 2026-10-28), but the client registration
-  has no SPA redirect URI yet, so a full sign-in has not happened. It books
+- **The Angular client's sign-in has been run against Entra once, by hand,
+  with a personal account** (2026-10-29,
+  [record](testing.md#manual-browser-sign-in-check-2026-10-29)); a work or
+  school account, a first-time user and token expiry are untried there. It
+  uses its own SPA registration, separate from the mobile app's. It books
   only; organisation administration is in the mobile app. Its production
   build has no proxy and would need the API on the same origin or CORS that
   allows `Authorization` ([ADR 0007](adr/0007-browser-sign-in-for-the-angular-client.md)).
