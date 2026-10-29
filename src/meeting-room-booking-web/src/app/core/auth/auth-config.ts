@@ -1,6 +1,6 @@
 /**
  * Microsoft Entra settings for browser sign-in, read at start-up from
- * `auth-config.json` next to the app (see `public/auth-config.example.json`).
+ * `auth-config.json` next to the app (see `auth-config.example.json`).
  * They identify the app registration and the API scope; none of them is a
  * secret. Without a valid file, sign-in is unavailable and the app uses the
  * API's anonymous demo mode as before.

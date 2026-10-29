@@ -60,7 +60,38 @@ Vitest through the Angular CLI (`npm test -- --watch=false`), 31 tests:
 - `authInterceptor`: the token goes only to relative `/api/` paths, never to an absolute or protocol-relative URL, and not while signed out.
 - The page: demo mode, editing, the signed-in organisation flow, first-visit registration, no organisation, hidden booking details without actions, and a late answer from an organisation the user switched away from.
 
-Not automated: a real Microsoft sign-in in a browser.
+Not automated: a real Microsoft sign-in in a browser. It was checked by hand
+once, below.
+
+### Manual browser sign-in check (2026-10-29)
+
+Setup: the Angular client (`npm start`, `http://localhost:4200`) with
+`public/auth-config.json` pointing to its own SPA registration
+(`RoomBooking-Web-Dev`, redirect URI `http://localhost:4200`, delegated
+`access_as_user` on the API registration, work, school and personal
+accounts). The API ran through `scripts/Start-Local.ps1` with
+`Entra__ApiClientId` set, on a *new* database restored from a fresh verified
+backup, so the development database was not opened. Browser: Microsoft Edge
+with a new, empty profile. The owner typed the Microsoft sign-in, consent and
+sign-out choices by hand; the booking steps and the reload were then driven
+through the page with Playwright over CDP. Account: the owner's personal
+Microsoft account, an existing Room Booking user and Owner of two
+organisations in that copy.
+
+| Step | Observed |
+| --- | --- |
+| Signed out | Demo-mode notice and **Sign in with Microsoft**; the legacy endpoints answer `401` because the API is not in demo mode, and the page says so. |
+| Sign-in by redirect, first consent to the web registration | Back on the app: `GET /api/me` `200`, `GET /api/organizations` `200`; both organisations listed with role Owner; rooms and bookings of the first one `200`. |
+| Switch organisation | Rooms and bookings of the other organisation `200`. |
+| Create, change, delete a synthetic booking through the form | `POST` `201`, listed; `PUT` `200`, new title listed; `DELETE` `204`, removed from the list and from the database copy. |
+| Reload the page | Still signed in without a Microsoft prompt (token from `sessionStorage`), `GET /api/me` `200`. |
+| **Sign out** | Redirect to Microsoft's sign-out, which asks which account to sign out of; back on the app in demo mode, with no access, refresh or ID token left in `sessionStorage`. |
+| Sign in again | `GET /api/me` and the organisation calls `200`. |
+
+Not covered by this check: a work or school account, a first-time user
+(`POST /api/me/registration`), the Member view with hidden details (the
+signed-in user was Owner everywhere), renewal after the access token expires
+(about an hour), and a production build.
 
 ## Build and test
 

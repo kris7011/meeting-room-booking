@@ -34,11 +34,14 @@ browser only talks to its own origin and no CORS configuration is needed.
 
 ## Microsoft sign-in (optional)
 
-1. In the Entra admin center, open the **client** app registration (the
-   public client the mobile app uses, or a new one) and add the platform
-   **Single-page application** with the redirect URI `http://localhost:4200`.
-   It needs the delegated permission `access_as_user` on the API registration
-   and the same supported account types as the API.
+1. In the Entra admin center, create a **client** app registration for the
+   browser, separate from the mobile app's (for example
+   `RoomBooking-Web-Dev`), with the platform **Single-page application** and
+   the redirect URI `http://localhost:4200`. It needs the delegated permission
+   `access_as_user` on the API registration and the same supported account
+   types as the API. (The mobile app's registration with an added SPA
+   platform also works, but a separate one keeps each client's redirect URIs,
+   consent and removal apart.)
 2. Copy `auth-config.example.json` to `public/auth-config.json` (ignored by
    Git) and fill in the client ID and the API's scope. These are identifiers,
    not secrets.
@@ -77,7 +80,10 @@ no test reaches Microsoft; the component with stubbed services, including the
 signed-in organisation flow, hidden booking details and a late answer from an
 organisation the user switched away from.
 
-Not automated: a real Microsoft sign-in in a browser.
+Not automated: a real Microsoft sign-in in a browser. It was done by hand on
+2026-10-29 with a personal Microsoft account: sign-in, organisations, create,
+change and delete a booking, reload, sign-out and sign-in again
+([record](../../docs/testing.md#manual-browser-sign-in-check-2026-10-29)).
 
 ## Design
 
