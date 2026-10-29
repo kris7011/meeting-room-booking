@@ -94,14 +94,15 @@ and books; its in-memory demo also lists and deletes.
 | --- | --- |
 | **Microsoft Entra ID, work or school accounts** of any tenant (multi-tenant app) | Implemented; covered by tests with test-signed tokens. Not tried with a real work account. |
 | **Personal Microsoft accounts** (Outlook.com, Hotmail, Live.com) through the same Microsoft sign-in | Implemented; signed in on a Samsung Android development build (see the [mobile device record](https://github.com/kris7011/room-booking-mobile/blob/main/docs/device-testing.md)). This is Microsoft account sign-in, not a username and password stored by Room Booking. |
-| E-mail one-time code through Microsoft Entra External ID | Agreed in the architecture plan, **not implemented**: it needs an External ID tenant, which does not exist. The schema already allows a second identity provider. |
+| E-mail one-time code through Microsoft Entra External ID | API side **implemented**, covered by tests with test-signed tokens; **not yet run against Microsoft**, because the external tenant does not exist yet ([setup](docs/external-id-setup.md)). E-mail users cannot accept invitations until the e-mail claim has been checked. |
 | Linking two identities of one person | Not implemented; identities are never linked automatically, e.g. by e-mail. |
 | Anonymous demo mode | Original endpoints only, Development and Testing environments only; the API refuses to start with it anywhere else. |
 
 - **Tokens:** RS256 signature from Microsoft's published keys, exact v2.0
   issuer per tenant, audience, lifetime and the delegated scope
   `access_as_user`. The user is identified by issuer + object ID, never by
-  e-mail. Details: [docs/entra-setup.md](docs/entra-setup.md).
+  e-mail. Details: [docs/entra-setup.md](docs/entra-setup.md); External ID
+  tokens are validated by their own scheme ([docs/external-id-setup.md](docs/external-id-setup.md)).
 - **Tenant isolation:** every organisation endpoint sits under
   `/api/organizations/{id}` behind one filter that checks registration,
   enabled account and membership. Non-members get `404`, so they cannot tell
@@ -197,7 +198,7 @@ existed) has no creator; its first Owner is named in configuration by user ID:
 
 | Suite | Count | What it covers |
 | --- | --- | --- |
-| Backend integration tests (xUnit, `WebApplicationFactory`, temporary SQLite) | 385 | Every endpoint and role, tenant isolation, concurrency (parallel requests and a deterministic transaction gate), migrations on old schemas, backup and restore, token validation with test-signed tokens, idempotency, privacy, and the [documented journey](tests/MeetingRoomBooking.Api.IntegrationTests/DocumentedJourneyTests.cs) end to end |
+| Backend integration tests (xUnit, `WebApplicationFactory`, temporary SQLite) | 419 | Every endpoint and role, tenant isolation, concurrency (parallel requests and a deterministic transaction gate), migrations on old schemas, backup and restore, token validation with test-signed tokens (Entra ID and External ID), idempotency, privacy, and the [documented journey](tests/MeetingRoomBooking.Api.IntegrationTests/DocumentedJourneyTests.cs) end to end |
 | Angular client (Vitest) | 31 | API services, sign-in with a fake MSAL client, the token interceptor, the page's demo and signed-in flows |
 | Demo script smoke test (PowerShell 7 on Linux) | 1 | `Start-Demo.ps1` builds, starts, seeds and stops |
 | Mobile E2E (Playwright, in the mobile repository) | 38 | The mobile web build against this API on a fresh database |
@@ -253,7 +254,9 @@ are explained in the [developer walkthrough](docs/PROJECT_WALKTHROUGH.md).
   persistent disk. No deployment configuration is included; hosting is out
   of scope for this local portfolio setup.
 - **Sign-in needs the internet** (Microsoft), also when the API runs locally.
-- **Not implemented:** e-mail one-time-code sign-in (External ID), account
+- **Not run against Microsoft:** e-mail one-time-code sign-in (External ID);
+  no external tenant exists yet.
+- **Not implemented:** account
   linking, sending invitation e-mails (an invitation link or token is shared
   by hand), audit-log endpoint, pagination, recurring bookings.
 - **Angular client:** no room search and no administration screens. Its

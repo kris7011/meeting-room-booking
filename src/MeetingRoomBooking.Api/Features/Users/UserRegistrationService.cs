@@ -22,7 +22,8 @@ public sealed record RegistrationResult(
     User? User);
 
 /// <summary>
-/// Registers a signed-in Microsoft identity as a Room Booking user: one
+/// Registers a signed-in identity (Microsoft Entra ID or External ID) as a
+/// Room Booking user: one
 /// <see cref="User"/> and one <see cref="UserIdentity"/> keyed by the
 /// validated issuer and object ID. Idempotent: registering again returns
 /// the same user, and concurrent first registrations create exactly one.
@@ -71,7 +72,7 @@ public sealed class UserRegistrationService(
 
         var existing =
             await dbContext.UserIdentities
-                .ForEntraIdentity(identity)
+                .ForSignedInIdentity(identity)
                 .SingleOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
@@ -106,8 +107,9 @@ public sealed class UserRegistrationService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         dbContext.UserIdentities.Add(
-            UserIdentity.CreateEntra(
+            UserIdentity.Create(
                 newUser.Id,
+                identity.Provider,
                 identity.Issuer,
                 identity.ObjectId,
                 identity.VerifiedEmail,
@@ -122,7 +124,7 @@ public sealed class UserRegistrationService(
                 nowUtc,
                 new
                 {
-                    provider = nameof(IdentityProvider.Entra),
+                    provider = identity.Provider.ToString(),
                     tenantId = identity.TenantId
                 }));
 
@@ -132,8 +134,9 @@ public sealed class UserRegistrationService(
         // The public ID is what an operator needs to make this user the
         // first Owner of the legacy organisation (see LegacyOwnerBootstrap).
         logger.LogInformation(
-            "Registered user {UserPublicId} for a new Microsoft identity in tenant {TenantId}.",
+            "Registered user {UserPublicId} for a new {Provider} identity in tenant {TenantId}.",
             newUser.PublicId,
+            identity.Provider,
             identity.TenantId);
 
         return new RegistrationResult(RegistrationOutcome.Created, newUser);
@@ -154,14 +157,18 @@ public sealed class UserRegistrationService(
 
 public static class UserIdentityQueries
 {
-    /// <summary>The identity row for the validated issuer and object ID, if any.</summary>
-    public static IQueryable<UserIdentity> ForEntraIdentity(
+    /// <summary>
+    /// The identity row for the validated provider, issuer and object ID, if
+    /// any. The issuer alone already separates the providers; the provider is
+    /// compared as well so that a row can never match a token of the other.
+    /// </summary>
+    public static IQueryable<UserIdentity> ForSignedInIdentity(
         this IQueryable<UserIdentity> identities,
         SignedInIdentity identity)
     {
         return identities.Where(
             candidate =>
-                candidate.Provider == IdentityProvider.Entra &&
+                candidate.Provider == identity.Provider &&
                 candidate.Issuer == identity.Issuer &&
                 candidate.Subject == identity.ObjectId);
     }
@@ -172,7 +179,7 @@ public static class UserIdentityQueries
         SignedInIdentity identity)
     {
         return dbContext.UserIdentities
-            .ForEntraIdentity(identity)
+            .ForSignedInIdentity(identity)
             .Join(
                 dbContext.Users,
                 candidate => candidate.UserId,

@@ -178,6 +178,21 @@ used for exactly one thing: matching an invitation's address.
 **Not configured.** Without `Entra:ApiClientId` the API still starts; signed-in
 endpoints answer `503 authentication_not_configured`.
 
+**E-mail one-time code (Microsoft Entra External ID)** [Tested with test
+tokens; not run against Microsoft]. Code:
+[`ExternalIdAuthentication.cs`](../src/MeetingRoomBooking.Api/Features/Authentication/ExternalIdAuthentication.cs).
+When the `ExternalId` section is configured, a second JWT bearer scheme
+validates tokens of one external tenant against that tenant's own metadata
+(issuer, keys), its own audience and its `tid`. The default scheme
+`SignedIn` is a policy scheme that forwards a token to `ExternalId` when its
+unvalidated `iss` is a `ciamlogin.com` URL and to Entra's `Bearer`
+otherwise; the chosen scheme does all validation. `SignedInIdentity.Provider`
+comes from the scheme that validated the token, and `GET /api/me` returns it
+as `provider`. External ID identities have no verified e-mail unless
+`ExternalId:EmailClaimIsVerified` is on, so they cannot accept invitations
+by default. Why: [ADR 0008](adr/0008-external-id-as-a-second-token-issuer.md);
+set-up and the owner's steps: [external-id-setup.md](external-id-setup.md).
+
 **What the tests do not cover:** tests sign tokens with a key that exists only
 in the test process ([`EntraTestTokens.cs`](../tests/MeetingRoomBooking.Api.IntegrationTests/Authentication/EntraTestTokens.cs)).
 Validation against Microsoft's real metadata and real tokens is **[Manual]**.
@@ -309,8 +324,8 @@ visible in the calling code. Switching database provider, or passing
 
 ### 8.1 Registration [Tested]
 `POST /api/me/registration` → `UserRegistrationService`. One `BEGIN IMMEDIATE`
-transaction looks up `(iss, oid)` and creates `User` + `UserIdentity` if
-missing: `201` the first time, `200` afterwards. A unique-index violation from
+transaction looks up `(provider, iss, oid)` and creates `User` + `UserIdentity` if
+missing (provider `Entra` or `ExternalId`, from the validating scheme): `201` the first time, `200` afterwards. A unique-index violation from
 a concurrent writer is answered with that writer's user. A test sends 12
 parallel first registrations and expects exactly one user. Registration grants
 no memberships.
@@ -387,6 +402,7 @@ clients branch on `code`, while `title` and
 | --- | --- | --- |
 | API integration | The real app via `WebApplicationFactory`, environment `Testing`, a temporary SQLite file per factory, `Pooling=False` | `MeetingRoomBookingApiFactory` |
 | Authentication | Tokens signed with a test-only RSA key; production validation code otherwise unchanged | `EntraTestTokens`, `CurrentUserEndpointTests` |
+| External ID | A second test key and metadata in the documented external-tenant issuer format: accepted tokens, the provider stored, rejection of the wrong audience, issuer, tenant or key, the e-mail rule (off by default, never set by a token), invitations, start-up validation | `ExternalIdTestTokens`, `ExternalIdAuthenticationTests` |
 | Time | `TestTimeProvider` replaces `TimeProvider`, so "must start in the future" tests do not decay | `BookingTimeValidationTests` |
 | Concurrency | Parallel requests; direct SQL that tries to bypass triggers | `BookingConcurrencyTests`, `RegistrationEndpointTests` |
 | Access revoked mid-request | A real request held after the access filter by a test-only EF Core interceptor (`TransactionGate`) while its caller is disabled, removed or demoted; no timing | `MutationReauthorizationTests` [Tested] |
@@ -420,8 +436,10 @@ On 2026-10-28, `BookingPrivacyTests` (6, all failing before the change) made
 **384** (PR #19), and `DocumentedJourneyTests` **385** (PR #22), in CI and
 locally (Release, Windows). The Angular suite went from 8 to **31** tests with
 browser sign-in (PR #21).
+On 2026-10-29, `ExternalIdAuthenticationTests` (34) made **419** (Release,
+Windows), on `main` at `5fd17f1` plus the External ID change.
 
-**Not covered by automated tests:** real Entra tokens and metadata, a physical
+**Not covered by automated tests:** real Entra and External ID tokens and metadata, a physical
 device, a real deployment (TLS certificates, a reverse proxy, hosting
 configuration), and performance under load.
 
@@ -611,11 +629,12 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
   running instance locks the output, so a second instance fails at the build.
 - **No account linking**, no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
-- **E-mail one-time-code sign-in (Entra External ID) is not implemented.** It
-  was part of the architecture plan of 21 October 2026, but needs an External
-  ID tenant, which does not exist. Microsoft personal accounts (Outlook.com,
-  Hotmail) sign in through Microsoft's own account system; Room Booking
-  stores no passwords. `UserIdentities` already allows a second provider.
+- **E-mail one-time-code sign-in (Entra External ID) has not met Microsoft
+  yet.** The API side is implemented and tested with test tokens; no external
+  tenant exists, so the issuer format, the claims and a real sign-in are
+  unverified ([open checks](external-id-setup.md#verification-against-microsoft)).
+  E-mail users cannot accept invitations until `ExternalId:EmailClaimIsVerified`
+  is checked and turned on. Room Booking stores no passwords either way.
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
 - **Booking Idempotency-Keys last 24 hours.** A retry after that is a new
   request (the overlap rule still refuses a second booking of the same slot).

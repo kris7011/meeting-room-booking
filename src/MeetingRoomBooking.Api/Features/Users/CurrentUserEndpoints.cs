@@ -6,10 +6,12 @@ using Microsoft.EntityFrameworkCore;
 namespace MeetingRoomBooking.Api.Features.Users;
 
 /// <summary>The caller as the API sees them, from the validated access token.</summary>
+/// <param name="Provider">"Entra" (Microsoft account) or "ExternalId" (e-mail and one-time passcode).</param>
 public sealed record CurrentUserResponse(
     string DisplayName,
     string? Username,
     string TenantId,
+    string Provider,
     RegisteredUserResponse? User);
 
 /// <summary>The API's own user record for the identity, if one exists.</summary>
@@ -174,6 +176,7 @@ public static class CurrentUserEndpoints
             identity.DisplayName,
             identity.Username,
             identity.TenantId,
+            identity.Provider.ToString(),
             registered);
     }
 }

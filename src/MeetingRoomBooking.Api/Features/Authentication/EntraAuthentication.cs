@@ -6,16 +6,25 @@ using Microsoft.IdentityModel.Validators;
 namespace MeetingRoomBooking.Api.Features.Authentication;
 
 /// <summary>
-/// Validates Microsoft Entra ID v2.0 access tokens for this API. The API
-/// alone decides who the caller is: from a token whose signature, issuer,
-/// audience, lifetime and scope it has checked, never from anything the
-/// client says about itself.
+/// Validates Microsoft Entra ID v2.0 access tokens for this API, and, when
+/// configured, Microsoft Entra External ID tokens as well
+/// (<see cref="ExternalIdAuthentication"/>). The API alone decides who the
+/// caller is: from a token whose signature, issuer, audience, lifetime and
+/// scope it has checked, never from anything the client says about itself.
 /// </summary>
 public static class EntraAuthentication
 {
     /// <summary>Signed-in users with a delegated token for this API.</summary>
     public const string SignedInUserPolicy =
         "EntraSignedInUser";
+
+    /// <summary>
+    /// The default scheme: hands each token to the scheme of its issuer,
+    /// Entra ID (<see cref="JwtBearerDefaults.AuthenticationScheme"/>) or
+    /// External ID (<see cref="ExternalIdAuthentication.SchemeName"/>).
+    /// </summary>
+    public const string SignedInScheme =
+        "SignedIn";
 
     /// <summary>
     /// The tenant that personal Microsoft accounts (Outlook.com, Hotmail,
@@ -48,13 +57,20 @@ public static class EntraAuthentication
                 .Get<EntraAuthenticationOptions>()
             ?? new EntraAuthenticationOptions();
 
+        var externalId =
+            builder.Configuration
+                .GetSection(ExternalIdAuthenticationOptions.SectionName)
+                .Get<ExternalIdAuthenticationOptions>()
+            ?? new ExternalIdAuthenticationOptions();
+
         builder.Services.AddSingleton(options);
+        builder.Services.AddSingleton(externalId);
 
         // Registered either way, so UseAuthentication/UseAuthorization work
         // and anonymous endpoints stay anonymous.
         var authentication =
             builder.Services.AddAuthentication(
-                JwtBearerDefaults.AuthenticationScheme);
+                SignedInScheme);
 
         builder.Services.AddAuthorization(
             authorization =>
@@ -63,7 +79,7 @@ public static class EntraAuthentication
                     policy =>
                         policy
                             .AddAuthenticationSchemes(
-                                JwtBearerDefaults.AuthenticationScheme)
+                                SignedInScheme)
                             .RequireAuthenticatedUser()
                             .RequireClaim(Claims.TenantId)
                             .RequireClaim(Claims.ObjectId)
@@ -77,10 +93,35 @@ public static class EntraAuthentication
 
         if (!options.IsConfigured)
         {
+            // E-mail sign-in is an addition to Microsoft sign-in, not a
+            // replacement: the endpoints are only mapped when Entra is set.
+            if (externalId.IsConfigured)
+            {
+                throw new InvalidOperationException(
+                    "ExternalId:ApiClientId is set, but Entra:ApiClientId is not. " +
+                    "External ID sign-in requires the Entra settings as well.");
+            }
+
             return options;
         }
 
         Validate(options);
+
+        authentication.AddPolicyScheme(
+            SignedInScheme,
+            displayName: null,
+            policy =>
+                policy.ForwardDefaultSelector =
+                    context =>
+                        externalId.IsConfigured &&
+                        ExternalIdAuthentication.IsExternalIdToken(context.Request)
+                            ? ExternalIdAuthentication.SchemeName
+                            : JwtBearerDefaults.AuthenticationScheme);
+
+        if (externalId.IsConfigured)
+        {
+            authentication.AddExternalIdBearer(externalId);
+        }
 
         var instance =
             options.Instance.TrimEnd('/');

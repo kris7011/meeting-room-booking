@@ -1,7 +1,9 @@
 # Microsoft Entra ID: token validation and setup
 
 How the API validates Microsoft access tokens, how to configure it, and the
-manual steps in the Entra admin center. The mobile app's side is in
+manual steps in the Entra admin center. E-mail one-time-code sign-in through
+Microsoft Entra External ID is a second, separate issuer: see
+[external-id-setup.md](external-id-setup.md). The mobile app's side is in
 [room-booking-mobile/docs/entra-login.md](https://github.com/kris7011/room-booking-mobile/blob/main/docs/entra-login.md);
 the Angular client's in its [README](../src/meeting-room-booking-web/README.md).
 
@@ -16,7 +18,7 @@ Two kinds of Microsoft account can sign in:
 
 What is in place:
 
-- `GET /api/me` requires a valid access token and returns the caller as the API sees them: display name, `preferred_username`, tenant ID and, once the identity is registered, the API's own user (`publicId`, display name, and the organisations the user belongs to with their role). It is read-only and creates no users or identities.
+- `GET /api/me` requires a valid access token and returns the caller as the API sees them: display name, `preferred_username`, tenant ID, `provider` (`Entra`, or `ExternalId` for an e-mail sign-in) and, once the identity is registered, the API's own user (`publicId`, display name, and the organisations the user belongs to with their role). It is read-only and creates no users or identities.
 - `POST /api/me/registration` registers the signed-in identity as a Room Booking user; see [Registration and organisation access](api-reference.md#registration-and-organisation-access).
 - Every room and booking endpoint requires a signed-in member of the organisation; see [Organisation access control](api-reference.md#organisation-access-control).
 - Without `Entra:ApiClientId` the API starts as before, and `GET /api/me` answers `503` with `code: "authentication_not_configured"`.
@@ -72,5 +74,5 @@ The API needs its own app registration, separate from the mobile app's:
 
 ### Not done yet
 
-- Linking a second identity (for example a work account and a personal account) to the same user.
+- Linking a second identity (for example a work account and a personal account, or a Microsoft account and an e-mail sign-in) to the same user.
 - CORS (Development only) allows the headers `Accept`, `Content-Type` and `Idempotency-Key`, not `Authorization`. The Angular client sends its token to its own origin, which the development server proxies to the API, so it needs no CORS; a browser client on another origin could not send `Authorization`. Native apps are not affected.
