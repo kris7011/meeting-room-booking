@@ -26,10 +26,18 @@ public sealed class ExternalIdAuthenticationTests
     }
 
     private WebApplicationFactory<Program> Factory(
-        bool emailClaimIsVerified = false)
+        params (string Key, string Value)[] settings)
     {
         return baseFactory.WithWebHostBuilder(
-            builder => builder.UseExternalIdTestTokens(emailClaimIsVerified));
+            builder =>
+            {
+                builder.UseExternalIdTestTokens();
+
+                foreach (var (key, value) in settings)
+                {
+                    builder.UseSetting(key, value);
+                }
+            });
     }
 
     [Fact]
@@ -112,7 +120,7 @@ public sealed class ExternalIdAuthenticationTests
     [Fact]
     public async Task SameEmail_OnBothIssuers_IsNeverLinked()
     {
-        var factory = Factory(emailClaimIsVerified: true);
+        var factory = Factory();
 
         var entraUser = await RegisterUserAsync(factory, TokenFor("oid-entra", "same@example.com"));
         var externalUser = await RegisterUserAsync(factory, ExternalIdTestTokens.TokenFor("oid-external", "same@example.com"));
@@ -222,7 +230,7 @@ public sealed class ExternalIdAuthenticationTests
     // E-mail
 
     [Fact]
-    public async Task EmailClaim_IsNotVerified_ByDefault()
+    public async Task EmailClaim_IsNeverStoredAsVerified()
     {
         var factory = Factory();
 
@@ -233,24 +241,13 @@ public sealed class ExternalIdAuthenticationTests
     }
 
     [Fact]
-    public async Task EmailClaim_IsVerified_WhenConfigured()
-    {
-        var factory = Factory(emailClaimIsVerified: true);
-
-        await RegisterUserAsync(factory, ExternalIdTestTokens.TokenFor("oid-email", " Emma@Example.com "));
-
-        Assert.Equal("emma@example.com", await ScalarAsync(factory, """SELECT "VerifiedEmail" FROM "UserIdentities" """));
-    }
-
-    [Fact]
     public async Task TokenCannotMarkItsOwnEmailAsVerified()
     {
-        // The API's own marker claim, put into the token by its issuer, is
-        // ignored: only the identity the API adds counts.
         var factory = Factory();
         var claims = ExternalIdTestTokens.UserClaims("oid-forged");
         claims["email"] = "victim@example.com";
-        claims[ExternalIdAuthentication.VerifiedEmailClaim] = "victim@example.com";
+        claims["verified_email"] = "victim@example.com";
+        claims["verified_primary_email"] = "victim@example.com";
         claims["xms_edov"] = true;
 
         await RegisterUserAsync(factory, ExternalIdTestTokens.Create(claims));
@@ -258,19 +255,54 @@ public sealed class ExternalIdAuthenticationTests
         Assert.Null(await ScalarAsync(factory, """SELECT "VerifiedEmail" FROM "UserIdentities" """));
     }
 
-    [Theory]
-    [InlineData(false, HttpStatusCode.Forbidden)]
-    [InlineData(true, HttpStatusCode.OK)]
-    public async Task Invitation_NeedsAVerifiedEmail_ForAnExternalIdUser(
-        bool emailClaimIsVerified,
-        HttpStatusCode expected)
+    [Fact]
+    public async Task Invitation_IsRefused_ForAnExternalIdUser_EvenWithTheInvitedAddressInTheToken()
     {
-        var factory = Factory(emailClaimIsVerified);
+        var factory = Factory();
+
+        using var accepted = await AcceptInvitationAsync(factory, "invitee@example.com", "invitee@example.com");
+
+        Assert.Equal(HttpStatusCode.Forbidden, accepted.StatusCode);
+        Assert.Equal("verified_email_required", await ProblemCodeAsync(accepted));
+        Assert.Equal(0L, await CountAsync(factory, """SELECT COUNT(*) FROM "Memberships" m JOIN "UserIdentities" i ON i."UserId" = m."UserId" WHERE i."Provider" = 'ExternalId'"""));
+    }
+
+    [Fact]
+    public async Task TheRemovedEmailClaimSwitch_NoLongerTrustsTheClaim()
+    {
+        // ExternalId:EmailClaimIsVerified existed before 29 October 2026 and
+        // trusted the token's email claim. A leftover setting must not.
+        var factory = Factory(("ExternalId:EmailClaimIsVerified", "true"));
+
+        using var accepted = await AcceptInvitationAsync(factory, "invitee@example.com", "invitee@example.com");
+
+        Assert.Equal(HttpStatusCode.Forbidden, accepted.StatusCode);
+        Assert.Equal("verified_email_required", await ProblemCodeAsync(accepted));
+    }
+
+    /// <summary>
+    /// An Entra Owner invites <paramref name="invitedEmail"/>; an External ID
+    /// user whose token claims <paramref name="tokenEmail"/> accepts.
+    /// </summary>
+    private static async Task<HttpResponseMessage> AcceptInvitationAsync(
+        WebApplicationFactory<Program> factory,
+        string invitedEmail,
+        string tokenEmail)
+    {
         var ownerToken = TokenFor("oid-owner", "owner@example.com");
-        var inviteeToken = ExternalIdTestTokens.TokenFor("oid-invitee", "invitee@example.com");
+        var inviteeToken = ExternalIdTestTokens.TokenFor("oid-invitee", tokenEmail);
         await RegisterUserAsync(factory, ownerToken);
         await RegisterUserAsync(factory, inviteeToken);
+        var invitation = await InviteAsync(factory, ownerToken, invitedEmail);
 
+        return await SendAsync(factory, HttpMethod.Post, "/api/invitations/accept", inviteeToken, new { token = invitation });
+    }
+
+    private static async Task<string?> InviteAsync(
+        WebApplicationFactory<Program> factory,
+        string ownerToken,
+        string email)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/organizations");
         request.Headers.Authorization = new("Bearer", ownerToken);
         request.Headers.TryAddWithoutValidation("Idempotency-Key", Guid.NewGuid().ToString());
@@ -286,19 +318,10 @@ public sealed class ExternalIdAuthenticationTests
                 HttpMethod.Post,
                 $"/api/organizations/{organizationId}/invitations",
                 ownerToken,
-                new { email = "invitee@example.com", role = "Member" });
+                new { email, role = "Member" });
         Assert.Equal(HttpStatusCode.Created, invited.StatusCode);
-        var invitation = (await JsonAsync(invited)).GetProperty("token").GetString();
 
-        using var accepted =
-            await SendAsync(factory, HttpMethod.Post, "/api/invitations/accept", inviteeToken, new { token = invitation });
-
-        Assert.Equal(expected, accepted.StatusCode);
-
-        if (expected == HttpStatusCode.Forbidden)
-        {
-            Assert.Equal("verified_email_required", await ProblemCodeAsync(accepted));
-        }
+        return (await JsonAsync(invited)).GetProperty("token").GetString();
     }
 
     // Configuration

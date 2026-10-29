@@ -33,17 +33,6 @@ public static partial class ExternalIdAuthentication
         "ExternalId";
 
     /// <summary>
-    /// The identity the API adds when <see cref="ExternalIdAuthenticationOptions.EmailClaimIsVerified"/>
-    /// is on. It is created here, never read from a token, so a token cannot
-    /// mark its own e-mail as verified.
-    /// </summary>
-    public const string VerifiedEmailAuthenticationType =
-        "RoomBooking.ExternalIdVerifiedEmail";
-
-    public const string VerifiedEmailClaim =
-        "verified_email";
-
-    /// <summary>
     /// Whether the bearer token in the request names an External ID issuer
     /// (<c>https://{tenant}.ciamlogin.com/…</c>). The token is not validated
     /// here; the chosen scheme validates it completely.
@@ -143,7 +132,7 @@ public static partial class ExternalIdAuthentication
                         OnTokenValidated =
                             context =>
                             {
-                                OnTokenValidated(context, tenantId, options.EmailClaimIsVerified);
+                                OnTokenValidated(context, tenantId);
                                 return Task.CompletedTask;
                             }
                     };
@@ -152,8 +141,7 @@ public static partial class ExternalIdAuthentication
 
     private static void OnTokenValidated(
         TokenValidatedContext context,
-        Guid tenantId,
-        bool emailClaimIsVerified)
+        Guid tenantId)
     {
         var principal =
             context.Principal!;
@@ -167,24 +155,6 @@ public static partial class ExternalIdAuthentication
             tokenTenant != tenantId)
         {
             context.Fail("The token's tid is not the configured external tenant.");
-            return;
-        }
-
-        if (!emailClaimIsVerified)
-        {
-            return;
-        }
-
-        var email =
-            EmailAddress.Normalize(
-                principal.FindFirstValue(SignedInIdentity.EmailClaim));
-
-        if (email is not null)
-        {
-            principal.AddIdentity(
-                new ClaimsIdentity(
-                    [new Claim(VerifiedEmailClaim, email)],
-                    VerifiedEmailAuthenticationType));
         }
     }
 

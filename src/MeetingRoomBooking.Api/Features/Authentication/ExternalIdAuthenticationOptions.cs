@@ -10,6 +10,9 @@ namespace MeetingRoomBooking.Api.Features.Authentication;
 /// Optional: without <see cref="ApiClientId"/> the API accepts Microsoft
 /// Entra ID tokens only, exactly as before. External ID is an additional way
 /// to sign in, so it requires the <c>Entra</c> section to be configured too.
+/// There is deliberately no setting that makes the token's <c>email</c>
+/// claim count as verified: External ID users never have a verified e-mail
+/// (see <see cref="Users.SignedInIdentity"/> and docs/external-id-setup.md).
 /// </remarks>
 public sealed class ExternalIdAuthenticationOptions
 {
@@ -34,17 +37,6 @@ public sealed class ExternalIdAuthenticationOptions
 
     /// <summary>The API's Application ID URI there. Defaults to <c>api://{ApiClientId}</c>.</summary>
     public string? ApplicationIdUri { get; set; }
-
-    /// <summary>
-    /// Whether the token's <c>email</c> claim may count as a verified address
-    /// (for accepting invitations). Off by default: Microsoft documents that
-    /// local accounts prove their e-mail with a one-time passcode, but not
-    /// that the <c>email</c> claim in the API's access token is that address.
-    /// Turn it on only after checking a real token of this tenant, and only
-    /// if the user flow offers e-mail accounts alone (no social or federated
-    /// providers). See docs/external-id-setup.md.
-    /// </summary>
-    public bool EmailClaimIsVerified { get; set; }
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ApiClientId);

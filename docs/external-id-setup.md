@@ -6,11 +6,12 @@ steps to create the external tenant. Microsoft account sign-in (Entra ID) is
 unchanged and described in [entra-setup.md](entra-setup.md); the decision is
 recorded in [ADR 0008](adr/0008-external-id-as-a-second-token-issuer.md).
 
-**Status.** The API side is **implemented and covered by integration tests**
-that sign tokens with a test key in the documented External ID format. It has
-**not been run against a real external tenant**: none exists yet. Everything
-under [Verification against Microsoft](#verification-against-microsoft) is
-still open.
+**Status.** Implemented, covered by integration tests with test-signed
+tokens, and **run against a real external tenant** on 29 October 2026
+(`roombookingdev`, created for this project): e-mail sign-up and sign-in on
+the Samsung development build, registration, a new organisation, explicit
+identity linking and Microsoft sign-in next to it. Results and what stays
+open: [Verification against Microsoft](#verification-against-microsoft).
 
 ## How it works
 
@@ -60,21 +61,41 @@ object ID. Two identities are never linked automatically.
 
 ### E-mail addresses
 
-An External ID identity has **no verified e-mail** by default. Microsoft
-documents that e-mail accounts in an external tenant prove their address with
-a one-time passcode, but not that the `email` claim in the API's access token
-is that address. `xms_edov`, which the API uses for Entra ID, covers e-mail
-domains the tenant has verified, which an outlook.com or gmail.com address in
-an external tenant never is. Without a verified e-mail, an External ID user
-can sign in, register, create organisations and book, but **cannot accept an
-invitation** (`403 verified_email_required`).
+The API **never treats an External ID token's `email` claim as verified**,
+and nothing can switch that on. Microsoft's
+[optional claims reference](https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims-reference)
+says the claim "isn't guaranteed to be correct, and is mutable over time".
+`xms_edov`, which the API uses for Entra ID, covers e-mail domains the tenant
+has verified, which a gmail.com address in an external tenant never is.
+Registration therefore stores no verified e-mail for an External ID identity,
+and **an e-mail user cannot accept an invitation** (`403
+verified_email_required`). They can sign in, register, create organisations
+(as Owner) and book; to join someone else's organisation they sign in with,
+or [link](api-reference.md#linking-a-second-sign-in-identity), a Microsoft
+account whose verified e-mail matches the invitation.
 
-`ExternalId:EmailClaimIsVerified: true` makes the API treat the `email` claim
-of External ID tokens as verified. The API then adds its own marker identity
-to the principal; a claim in the token itself can never mark an address as
-verified. Turn it on only after [checking a real token](#verification-against-microsoft)
-and only while the user flow offers e-mail accounts alone (no Google,
-Facebook or other federated providers).
+**Why no other guarantee.** Checked against the real tenant on 29 October
+2026:
+
+- The directory does record the address the one-time code went to: the
+  user's identity is `signInType: "federated"`, `issuer: "mail"`,
+  `issuerAssignedId: <address>` (not `emailAddress` with the tenant domain,
+  which is e-mail with password).
+- The API cannot read it on the user's behalf. Through the on-behalf-of flow
+  with delegated `User.Read`, the only Graph permission external tenants
+  allow besides `openid` and `offline_access`, `GET /me?$select=identities`
+  answered `200` with an **empty** `identities` array.
+- Reading it with an app-only token (client credentials, `User.Read.All`)
+  needs the separately billed **M2M Authentication** add-on of external
+  tenants ([pricing](https://learn.microsoft.com/en-us/entra/external-id/external-identities-pricing));
+  Microsoft does not say whether Graph tokens are exempt. A paid add-on is
+  outside this locally run portfolio project.
+- A custom claims provider (`TokenIssuanceStart`) could put the address into
+  the token from Microsoft's side, but needs a hosted HTTPS endpoint.
+
+The restrictive rule is the safe default: an invitation is matched only
+against an address Microsoft vouches for (Entra ID with `xms_edov`), never
+against a token claim alone.
 
 ## Configuration
 
@@ -83,8 +104,7 @@ Facebook or other federated providers).
   "TenantId": "",
   "TenantSubdomain": "",
   "ApiClientId": "",
-  "ApplicationIdUri": null,
-  "EmailClaimIsVerified": false
+  "ApplicationIdUri": null
 }
 ```
 
@@ -92,7 +112,9 @@ None of these is a secret. Without `ExternalId:ApiClientId` the API accepts
 Entra ID tokens only, exactly as before. With it, the API requires
 `Entra:ApiClientId` as well, because e-mail sign-in is an addition to
 Microsoft sign-in. It stops at start-up when a value is invalid (a client or
-tenant ID that is not a GUID, or a subdomain that is not one DNS label).
+tenant ID that is not a GUID, or a subdomain that is not one DNS label). The
+former `ExternalId:EmailClaimIsVerified` setting was removed; a leftover
+value is ignored.
 
 Set the values without editing the file, for example with `Start-Local.ps1`:
 
@@ -173,6 +195,36 @@ not into the repositories:
 | API client ID | Overview of RoomBooking-API-ExternalId-Dev | `ExternalId:ApiClientId`; the app's scope `api://<id>/access_as_user` |
 | Mobile client ID | Overview of RoomBooking-Mobile-ExternalId-Dev | `EXPO_PUBLIC_EXTERNAL_ID_CLIENT_ID` |
 
+### Scripted alternative (how the development tenant was made)
+
+On 29 October 2026 the development tenant was created and configured from
+the command line instead, with the same result:
+
+1. `az provider register -n Microsoft.AzureActiveDirectory`, a resource
+   group, then the ARM call [CIAM Tenants – Create](https://learn.microsoft.com/en-us/rest/api/activedirectory/ciam-tenants/create)
+   (`PUT …/providers/Microsoft.AzureActiveDirectory/ciamDirectories/roombookingdev?api-version=2023-05-17-preview`,
+   `location` `Europe`, `sku` `Standard`/`A0`, `countryCode` `DK`). It
+   reported billing type `MAU` and was ready within minutes.
+2. `az login --tenant <new tenant ID> --allow-no-subscriptions` (one manual
+   sign-in by the creator, who is Global Administrator there), in a separate
+   `AZURE_CONFIG_DIR` so the normal CLI login stays untouched.
+3. Microsoft Graph with `az rest`: the two app registrations and service
+   principals as in steps 3–4, admin consent as `oauth2PermissionGrants`
+   (`AllPrincipals`: mobile → API `access_as_user`, mobile → Graph
+   `openid offline_access`), and the user flow as an
+   [`externalUsersSelfServiceSignUpEventsFlow`](https://learn.microsoft.com/en-us/graph/api/identitycontainer-post-authenticationeventsflows)
+   with the identity provider `EmailOtpSignup-OAUTH` only, then the mobile
+   app added under `conditions/applications/includeApplications`.
+
+The Azure CLI's Graph token could not read the authentication-methods policy
+(`403`; it lacks `Policy.Read.AuthenticationMethod`). Step 2.2 was not needed:
+e-mail one-time passcode worked in the user flow as created.
+
+While testing the on-behalf-of lookup described under
+[E-mail addresses](#e-mail-addresses), the API registration had a client
+secret and delegated Graph `User.Read`; both were removed again afterwards,
+because the API uses neither.
+
 ### Costs
 
 From Microsoft's pricing pages as read on 29 October 2026
@@ -184,24 +236,43 @@ From Microsoft's pricing pages as read on 29 October 2026
   Basic tier includes the first 50,000 Monthly Active Users (MAU) at no cost."
   A development tenant with a handful of test users stays inside that.
 - No add-on is listed for e-mail one-time passcodes. Add-ons that cost extra
-  (SMS phone authentication, machine-to-machine tokens, Go-Local data
-  residency) are not used.
+  (SMS phone authentication, M2M authentication with client credentials,
+  Go-Local data residency) are not used. That is also why the API does not
+  read verified e-mail addresses with client credentials (see
+  [E-mail addresses](#e-mail-addresses)).
 - The pricing page does not state the price per MAU above 50,000, so none is
   given here.
 
 ## Verification against Microsoft
 
-Not done; each needs the external tenant:
+Run on 29 October 2026 against the external tenant `roombookingdev`, with the
+Samsung development build and the API on an **isolated copy** of the
+development database (restored from a verified backup; the real database's
+SHA-256 was unchanged afterwards). "Logged" means seen in the API log, the
+database copy or Graph; "on screen" means read from the phone's screen.
 
-1. The tenant's metadata names the issuer `https://{tenant ID}.ciamlogin.com/{tenant ID}/v2.0`
-   and the API starts against it.
-2. A real e-mail sign-in on the phone: `GET /api/me` answers `provider:
-   "ExternalId"`; registration creates a `UserIdentities` row with
-   `Provider = 'ExternalId'`.
-3. The access token's claims: `tid`, `oid`, `scp` and `name` present, `ver`
-   2.0. Whether an `email` claim can be issued, and whether it equals the
-   address the code went to, decides `EmailClaimIsVerified`.
-4. Microsoft account sign-in still works next to it (regression).
+| # | Check | Result |
+| --- | --- | --- |
+| 1 | Metadata issuer is `https://{tenant ID}.ciamlogin.com/{tenant ID}/v2.0`; the API starts against it | **Pass** (logged: metadata document, API start) |
+| 2 | E-mail sign-in on the phone; `GET /api/me` and registration | **Pass** (logged: `UserIdentities` row with `Provider = 'ExternalId'` and that issuer; on screen: *Logget ind med e-mail-kode*, *Du er nu registreret*) |
+| 3 | Token claims | Issuer, signature, audience, `tid`, `oid` and `scp` passed the API's validation (logged); the token's `email` claim is not used, by design |
+| 4 | Microsoft sign-in still works next to it | **Pass** (on screen and logged: the existing user and organisations) |
+| 5 | The same person as a Microsoft account and as an e-mail login | **Two users**, never linked automatically (logged) |
+| 6 | Explicit linking of the e-mail login to the Microsoft user | **Pass**: proof with a code, confirmation, then e-mail sign-in returns the Microsoft user with its memberships (logged) |
+| 7 | Linking a login that is already a user of its own | **Refused**; the request was cancelled, nothing merged (logged) |
+| 8 | Invitation accepted by an e-mail user | **Refused** with `verified_email_required` (logged). Seen with the intermediate on-behalf-of build, whose Graph lookup found no address; the final code refuses without any lookup, which the integration tests cover |
+
+**Microsoft behaviour found on the way** (not Room Booking defects):
+
+- An address that is also a **personal Microsoft account** (seen with a
+  hotmail.com and a gmail.com address) gets "Denne konto findes ikke i denne
+  organisation" on the sign-in page, with the sign-up link shown as raw text
+  (`<aadSelfSignup>opret en ny</aadSelfSignup>`). Such an address can sign up
+  on the sign-up page (`prompt=create`), after which normal sign-in works;
+  other addresses get a working "Opret en" link. The app's sign-in text
+  points Hotmail, Outlook and Live users to Microsoft sign-in.
+- E-mail one-time-passcode identities appear in Graph as `federated` with
+  issuer `mail`.
 
 The automated tests ([`ExternalIdAuthenticationTests`](../tests/MeetingRoomBooking.Api.IntegrationTests/Authentication/ExternalIdAuthenticationTests.cs))
 cover the API's rules with tokens signed by a key that exists only in the

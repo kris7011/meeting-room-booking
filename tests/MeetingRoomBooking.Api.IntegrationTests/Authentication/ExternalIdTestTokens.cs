@@ -104,14 +104,12 @@ public static class ExternalIdTestTokens
     /// with the test key. External ID requires the Entra settings.
     /// </summary>
     public static IWebHostBuilder UseExternalIdTestTokens(
-        this IWebHostBuilder builder,
-        bool emailClaimIsVerified = false)
+        this IWebHostBuilder builder)
     {
         builder.UseEntraTestTokens();
         builder.UseSetting("ExternalId:TenantId", TenantId);
         builder.UseSetting("ExternalId:TenantSubdomain", TenantSubdomain);
         builder.UseSetting("ExternalId:ApiClientId", ApiClientId);
-        builder.UseSetting("ExternalId:EmailClaimIsVerified", emailClaimIsVerified ? "true" : "false");
 
         return builder.ConfigureTestServices(
             services =>

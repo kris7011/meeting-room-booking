@@ -188,9 +188,11 @@ validates tokens of one external tenant against that tenant's own metadata
 unvalidated `iss` is a `ciamlogin.com` URL and to Entra's `Bearer`
 otherwise; the chosen scheme does all validation. `SignedInIdentity.Provider`
 comes from the scheme that validated the token, and `GET /api/me` returns it
-as `provider`. External ID identities have no verified e-mail unless
-`ExternalId:EmailClaimIsVerified` is on, so they cannot accept invitations
-by default. Why: [ADR 0008](adr/0008-external-id-as-a-second-token-issuer.md);
+as `provider`. External ID identities never have a verified e-mail
+(`SignedInIdentity.From`), so e-mail users cannot accept invitations
+(`verified_email_required`): the token's `email` claim is no guarantee, and
+the directory's record of the address cannot be read without a paid
+add-on ([why](external-id-setup.md#e-mail-addresses)). Why: [ADR 0008](adr/0008-external-id-as-a-second-token-issuer.md);
 set-up and the owner's steps: [external-id-setup.md](external-id-setup.md).
 
 **What the tests do not cover:** tests sign tokens with a key that exists only
@@ -455,7 +457,8 @@ browser sign-in (PR #21).
 On 2026-10-29, `ExternalIdAuthenticationTests` (34) made **419** (Release,
 Windows), on `main` at `5fd17f1` plus the External ID change (PR #26), and
 `IdentityLinkingTests` (23) **442**, on `main` at `2f1648c` plus identity
-linking.
+linking. Removing the `EmailClaimIsVerified` switch (its opt-in case gone, a
+test that a leftover setting has no effect added) made **441**.
 
 **Not covered by automated tests:** real Entra and External ID tokens and metadata, a physical
 device, a real deployment (TLS certificates, a reverse proxy, hosting
@@ -647,12 +650,12 @@ Rationale: [ADR 0003](adr/0003-portable-sqlite-backup-and-restore.md).
   running instance locks the output, so a second instance fails at the build.
 - **Identity linking has no unlinking**, and users are never merged; no audit-log endpoint, no pagination, no general
   rate limiting (only organisation creation is limited).
-- **E-mail one-time-code sign-in (Entra External ID) has not met Microsoft
-  yet.** The API side is implemented and tested with test tokens; no external
-  tenant exists, so the issuer format, the claims and a real sign-in are
-  unverified ([open checks](external-id-setup.md#verification-against-microsoft)).
-  E-mail users cannot accept invitations until `ExternalId:EmailClaimIsVerified`
-  is checked and turned on. Room Booking stores no passwords either way.
+- **E-mail users cannot accept invitations.** No supported, free way to
+  establish their verified address was found ([details](external-id-setup.md#e-mail-addresses));
+  they create their own organisations or use a Microsoft account. E-mail
+  sign-in itself was run against a real external tenant on 29 October 2026
+  ([results](external-id-setup.md#verification-against-microsoft)). Room
+  Booking stores no passwords.
 - **Transaction mode is implicit** (see [section 7](#transactions-and-concurrency-tested)).
 - **Booking Idempotency-Keys last 24 hours.** A retry after that is a new
   request (the overlap rule still refuses a second booking of the same slot).

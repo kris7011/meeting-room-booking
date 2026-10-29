@@ -59,8 +59,13 @@ public sealed record SignedInIdentity(
                     ? username
                     : objectId,
             username,
+            // Never for External ID: Microsoft documents its email claim as
+            // unverified and mutable, and xms_edov covers only domains the
+            // tenant has verified, which a gmail.com address in an external
+            // tenant never is. No supported, free way to establish one was
+            // found (docs/external-id-setup.md#e-mail-addresses).
             provider == IdentityProvider.ExternalId
-                ? ReadExternalIdVerifiedEmail(principal)
+                ? null
                 : ReadVerifiedEmail(principal));
     }
 
@@ -90,26 +95,6 @@ public sealed record SignedInIdentity(
 
         return EmailAddress.Normalize(
             principal.FindFirstValue(EmailClaim));
-    }
-
-    /// <summary>
-    /// An External ID address counts as verified only when the API itself
-    /// marked it so, under <c>ExternalId:EmailClaimIsVerified</c> (see
-    /// <see cref="ExternalIdAuthentication"/>). <c>xms_edov</c> does not
-    /// help here: it covers domains the tenant has verified, which an
-    /// outlook.com or gmail.com address in an external tenant never is.
-    /// </summary>
-    private static string? ReadExternalIdVerifiedEmail(
-        ClaimsPrincipal principal)
-    {
-        return principal.Identities
-            .Where(
-                identity =>
-                    identity.AuthenticationType == ExternalIdAuthentication.VerifiedEmailAuthenticationType)
-            .Select(
-                identity =>
-                    identity.FindFirst(ExternalIdAuthentication.VerifiedEmailClaim)?.Value)
-            .FirstOrDefault(email => email is not null);
     }
 
     // The policy guarantees tid and oid; iss is always present on a
