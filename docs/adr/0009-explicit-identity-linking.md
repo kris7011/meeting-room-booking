@@ -1,7 +1,9 @@
 # ADR 0009: Explicit identity linking with proof of both identities
 
 - **Status:** Accepted. Implemented and covered by integration tests with
-  test-signed tokens; not yet run with real Microsoft sign-ins.
+  test-signed tokens; run with a real Microsoft account and a real External
+  ID e-mail login on 29 October 2026 (linked after proof and confirmation;
+  a login that already was a user was refused).
 - **Code:** `Features/Users/IdentityLinkRequest.cs`, `IdentityLinkService.cs`,
   `IdentityLinkEndpoints.cs`; migration `AddIdentityLinkRequests`
 

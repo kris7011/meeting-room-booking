@@ -103,9 +103,9 @@ public sealed class IdentityLinkingTests
     }
 
     [Fact]
-    public async Task SameVerifiedEmail_IsNeverLinkedWithoutTheSteps()
+    public async Task SameEmail_IsNeverLinkedWithoutTheSteps()
     {
-        var verifiedFactory = baseFactory.WithWebHostBuilder(builder => builder.UseExternalIdTestTokens(emailClaimIsVerified: true));
+        var verifiedFactory = baseFactory.WithWebHostBuilder(builder => builder.UseExternalIdTestTokens());
 
         var account = await RegisterUserAsync(verifiedFactory, accountToken);
         var other = await RegisterUserAsync(verifiedFactory, emailToken);

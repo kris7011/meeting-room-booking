@@ -16,8 +16,8 @@ code, code comments and README, not from notes written at the time.
 | [0005](0005-idempotent-booking-creation.md) | Idempotent booking creation with a persisted Idempotency-Key | Accepted (PR #18 merged) |
 | [0006](0006-booking-details-hidden-from-members.md) | Booking titles and bookers hidden from Members | Accepted (PR #19 merged) |
 | [0007](0007-browser-sign-in-for-the-angular-client.md) | Browser sign-in for the Angular client (MSAL, redirect, own-origin token) | Accepted |
-| [0008](0008-external-id-as-a-second-token-issuer.md) | Microsoft Entra External ID as a second token issuer (own scheme, no verified e-mail by default) | Accepted; not yet run against a real external tenant |
-| [0009](0009-explicit-identity-linking.md) | Explicit identity linking: start, claim with a one-time code, confirm; never by e-mail, never merging | Accepted; not yet run with real sign-ins |
+| [0008](0008-external-id-as-a-second-token-issuer.md) | Microsoft Entra External ID as a second token issuer (own scheme, no verified e-mail) | Accepted; run against a real external tenant |
+| [0009](0009-explicit-identity-linking.md) | Explicit identity linking: start, claim with a one-time code, confirm; never by e-mail, never merging | Accepted; run with real Microsoft and e-mail sign-ins |
 
 New ADRs: copy the structure of an existing one, number them sequentially,
 and keep them to one page.
