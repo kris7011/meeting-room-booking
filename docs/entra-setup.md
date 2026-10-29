@@ -74,5 +74,5 @@ The API needs its own app registration, separate from the mobile app's:
 
 ### Not done yet
 
-- Linking a second identity (for example a work account and a personal account, or a Microsoft account and an e-mail sign-in) to the same user.
+- Unlinking an identity. Linking one, with proof of both and the user's confirmation, is described under [Linking a second sign-in identity](api-reference.md#linking-a-second-sign-in-identity).
 - CORS (Development only) allows the headers `Accept`, `Content-Type` and `Idempotency-Key`, not `Authorization`. The Angular client sends its token to its own origin, which the development server proxies to the API, so it needs no CORS; a browser client on another origin could not send `Authorization`. Native apps are not affected.

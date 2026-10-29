@@ -314,6 +314,20 @@ The setting takes effect only while the legacy organisation has no Owner. Once i
 
 Neither the e-mail address nor the token is enough alone: the token proves the link reached someone, and the verified e-mail proves it is the person it was sent to. Both endpoints answer `403 user_not_registered` to a signed-in identity that has not registered. Every change writes audit events without tokens or token hashes.
 
+### Linking a second sign-in identity
+
+One person can add another way to sign in (a work account, a personal Microsoft account, or an e-mail one-time code) to their existing user. It takes three requests, each with its own access token, and never happens because e-mail addresses match ([ADR 0009](adr/0009-explicit-identity-linking.md)):
+
+| Step | Endpoint | Signed in as | Rules |
+| --- | --- | --- | --- |
+| 1. Start | `POST /api/me/identity-links` | The existing, registered and enabled user | `201` with `{ linkId, code, expiresUtc }`. The code is shown only here; the database keeps its SHA-256 hash. Valid for 10 minutes; starting again cancels the earlier code. Not registered: `403 user_not_registered`; disabled: `403 user_disabled`. |
+| 2. Claim | `POST /api/identity-links/claim` with `{ "code" }` | The identity to add, in a separate sign-in | Proves that the holder of the code controls this identity. Links nothing yet. `200` with `{ linkId, accountDisplayName, provider, expiresUtc }`; again with the same identity: the same answer. Missing code: `400` validation. Unknown, expired, used, cancelled, claimed by another identity, or the account disabled: `400 identity_link_invalid`. Already this user's identity: `409 identity_already_linked`. A user of its own: `409 identity_belongs_to_another_user` (users are never merged). |
+| 3. Confirm | `POST /api/me/identity-links/{linkId}/confirm` | The existing user again | Creates the identity, writes an `IdentityLinked` audit event and returns the user's identities. Before a claim: `409 identity_link_not_claimed`. Expired or cancelled: `400 identity_link_invalid`. The claimed identity registered on its own in the meantime: `409 identity_belongs_to_another_user`. Another user's request: `404 identity_link_not_found`. Confirming again returns the same list. |
+| Cancel | `DELETE /api/me/identity-links/{linkId}` | The existing user | `204`; a finished request stays as it is. |
+| List | `GET /api/me/identities` | Any identity of the user | `[{ provider, isPersonalMicrosoftAccount, verifiedEmail, createdUtc, lastUsedUtc, isCurrent }]`, oldest first. Issuer and object ID are not returned. |
+
+There is no unlinking endpoint yet.
+
 ### Members and roles
 
 | Role | Organisation administration |
@@ -362,6 +376,7 @@ The data model for self-service organisations is in place. Registration creates 
 | `Memberships` | Key `(OrganizationId, UserId)`, so one membership per user and organisation; a user can be in several organisations. | Role is `Owner`, `Admin` or `Member`. Once an organisation has an Owner, triggers refuse to delete, demote or move its last Owner (`last_owner`). |
 | `Invitations` | To one organisation (`OrganizationId`) and one e-mail address; `InvitedByUserId` and `AcceptedByUserId` → `Users`. | Role is `Admin` or `Member`, never `Owner`; e-mail is lower case; only a 64-character lower-case hex SHA-256 of the token fits, so a raw token cannot be stored; tokens are unique; expiry is after creation; accepted and revoked exclude each other; one open invitation per e-mail and organisation. |
 | `AuditEvents` | Organisation (optional), actor and target user, type and time. | Foreign keys to `Organizations` and `Users`. |
+| `IdentityLinkRequests` | One attempt to link an identity; `UserId` → `Users`; `PublicId` and `CodeHash` unique. | Only a 64-character lower-case hex SHA-256 fits as `CodeHash`; expiry after creation; the claiming identity (provider, issuer, subject, time) is recorded completely or not at all; completed only after a claim and never also cancelled. |
 
 Nobody becomes a member of any organisation automatically, the legacy organisation included. The start-up check also refuses to start if one of the last-Owner triggers is missing.
 

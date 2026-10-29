@@ -52,6 +52,9 @@ public sealed class BookingDbContext(
     public DbSet<BookingCreationRequest> BookingCreationRequests =>
         Set<BookingCreationRequest>();
 
+    public DbSet<IdentityLinkRequest> IdentityLinkRequests =>
+        Set<IdentityLinkRequest>();
+
     protected override void OnModelCreating(
         ModelBuilder modelBuilder)
     {
@@ -83,6 +86,9 @@ public sealed class BookingDbContext(
 
         ConfigureBookingCreationRequests(
             modelBuilder.Entity<BookingCreationRequest>());
+
+        ConfigureIdentityLinkRequests(
+            modelBuilder.Entity<IdentityLinkRequest>());
     }
 
     private static void ConfigureBookingCreationRequests(
@@ -286,6 +292,92 @@ public sealed class BookingDbContext(
                     membership.Role
                 })
             .HasDatabaseName("IX_Memberships_OrganizationId_Role");
+    }
+
+    private static void ConfigureIdentityLinkRequests(
+        EntityTypeBuilder<IdentityLinkRequest> builder)
+    {
+        builder.ToTable(
+            "IdentityLinkRequests",
+            tableBuilder =>
+            {
+                // Only a lower-case hex SHA-256 fits: a raw code is rejected.
+                tableBuilder.HasCheckConstraint(
+                    "CK_IdentityLinkRequests_CodeHash",
+                    $"length(\"CodeHash\") = {IdentityLinkCode.HashLength} AND \"CodeHash\" NOT GLOB '*[^0-9a-f]*'");
+
+                tableBuilder.HasCheckConstraint(
+                    "CK_IdentityLinkRequests_Expiry",
+                    "\"ExpiresUtc\" > \"CreatedUtc\"");
+
+                // The claiming identity is recorded completely or not at all.
+                tableBuilder.HasCheckConstraint(
+                    "CK_IdentityLinkRequests_Claim",
+                    "(\"ClaimedUtc\" IS NULL AND \"ClaimedProvider\" IS NULL AND \"ClaimedIssuer\" IS NULL AND \"ClaimedSubject\" IS NULL AND \"ClaimedVerifiedEmail\" IS NULL) OR " +
+                    "(\"ClaimedUtc\" IS NOT NULL AND \"ClaimedProvider\" IN ('Entra', 'ExternalId') AND length(\"ClaimedIssuer\") > 0 AND length(\"ClaimedSubject\") > 0)");
+
+                // Completed only after a claim, and never also cancelled.
+                tableBuilder.HasCheckConstraint(
+                    "CK_IdentityLinkRequests_Outcome",
+                    "(\"CompletedUtc\" IS NULL OR \"ClaimedUtc\" IS NOT NULL) AND (\"CompletedUtc\" IS NULL OR \"CancelledUtc\" IS NULL)");
+            });
+
+        builder.HasKey(request => request.Id);
+
+        builder.Property(request => request.CodeHash)
+            .HasMaxLength(IdentityLinkCode.HashLength)
+            .IsRequired();
+
+        builder.Property(request => request.ClaimedProvider)
+            .HasConversion<string>()
+            .HasMaxLength(16);
+
+        builder.Property(request => request.ClaimedIssuer)
+            .HasMaxLength(UserIdentity.MaximumIssuerLength);
+
+        builder.Property(request => request.ClaimedSubject)
+            .HasMaxLength(UserIdentity.MaximumSubjectLength);
+
+        builder.Property(request => request.ClaimedVerifiedEmail)
+            .HasMaxLength(UserIdentity.MaximumEmailLength);
+
+        builder.Property(request => request.CreatedUtc)
+            .HasConversion(DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.Property(request => request.ExpiresUtc)
+            .HasConversion(DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER")
+            .IsRequired();
+
+        builder.Property(request => request.ClaimedUtc)
+            .HasConversion(DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.Property(request => request.CompletedUtc)
+            .HasConversion(DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.Property(request => request.CancelledUtc)
+            .HasConversion(DateTimeOffsetToUtcTicksConverter)
+            .HasColumnType("INTEGER");
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(request => request.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(request => request.PublicId)
+            .IsUnique()
+            .HasDatabaseName("UX_IdentityLinkRequests_PublicId");
+
+        builder.HasIndex(request => request.CodeHash)
+            .IsUnique()
+            .HasDatabaseName("UX_IdentityLinkRequests_CodeHash");
+
+        builder.HasIndex(request => request.UserId)
+            .HasDatabaseName("IX_IdentityLinkRequests_UserId");
     }
 
     private static void ConfigureInvitations(
