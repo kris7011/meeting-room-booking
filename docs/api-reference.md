@@ -281,9 +281,11 @@ or `$env:LegacyApi__AllowAnonymous = "true"`. This is only accepted in the `Deve
 
 ### Verified e-mail addresses
 
-The API treats the `email` claim as verified only when the token also carries `xms_edov: true`. Microsoft documents `email` on its own as unverified and mutable, so without `xms_edov` the identity has no verified e-mail. `preferred_username` is never used as an e-mail. A verified e-mail is only ever compared with the address of an invitation, together with the invitation's secret token; it never grants access on its own.
+For Microsoft accounts (Entra ID), the API treats the `email` claim as verified only when the token also carries `xms_edov: true`. Microsoft documents `email` on its own as unverified and mutable, so without `xms_edov` the identity has no verified e-mail. `preferred_username` is never used as an e-mail. A verified e-mail is only ever compared with the address of an invitation, together with the invitation's secret token; it never grants access on its own.
 
 To get these claims, add the **optional claims** `email` and `xms_edov` to the **access token** of the API's app registration (step 4 under the admin-center steps above). Without them, registration still works, but invitations cannot be accepted (`verified_email_required`).
+
+E-mail one-time-code sign-ins (External ID) have no verified e-mail unless `ExternalId:EmailClaimIsVerified` is turned on, after checking a real token ([external-id-setup.md](external-id-setup.md#e-mail-addresses)). `GET /api/me` says which issuer signed the caller in: `"provider": "Entra"` or `"provider": "ExternalId"`.
 
 ### The first Owner of the legacy organisation
 

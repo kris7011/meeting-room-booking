@@ -8,6 +8,7 @@ namespace MeetingRoomBooking.Api.Features.Users;
 /// issuer, audience, lifetime and scope). Nothing here comes from the
 /// request body or anything else the client says about itself.
 /// </summary>
+/// <param name="Provider">Which issuer vouched for the token: Entra ID or External ID.</param>
 /// <param name="Issuer">The validated <c>iss</c>; with <paramref name="ObjectId"/> the identity key.</param>
 /// <param name="ObjectId">The immutable <c>oid</c>.</param>
 /// <param name="Username"><c>preferred_username</c>: display only, never a key and never verified.</param>
@@ -15,6 +16,7 @@ namespace MeetingRoomBooking.Api.Features.Users;
 /// An address Microsoft vouches for, in lower case, or null. See <see cref="ReadVerifiedEmail"/>.
 /// </param>
 public sealed record SignedInIdentity(
+    IdentityProvider Provider,
     string Issuer,
     string ObjectId,
     string TenantId,
@@ -39,7 +41,15 @@ public sealed record SignedInIdentity(
         var name =
             principal.FindFirstValue(EntraAuthentication.Claims.Name);
 
+        var provider =
+            principal.Identities.Any(
+                identity =>
+                    identity.AuthenticationType == ExternalIdAuthentication.AuthenticationType)
+                ? IdentityProvider.ExternalId
+                : IdentityProvider.Entra;
+
         return new SignedInIdentity(
+            provider,
             Required(principal, EntraAuthentication.Claims.Issuer),
             objectId,
             Required(principal, EntraAuthentication.Claims.TenantId),
@@ -49,7 +59,9 @@ public sealed record SignedInIdentity(
                     ? username
                     : objectId,
             username,
-            ReadVerifiedEmail(principal));
+            provider == IdentityProvider.ExternalId
+                ? ReadExternalIdVerifiedEmail(principal)
+                : ReadVerifiedEmail(principal));
     }
 
     /// <summary>
@@ -78,6 +90,26 @@ public sealed record SignedInIdentity(
 
         return EmailAddress.Normalize(
             principal.FindFirstValue(EmailClaim));
+    }
+
+    /// <summary>
+    /// An External ID address counts as verified only when the API itself
+    /// marked it so, under <c>ExternalId:EmailClaimIsVerified</c> (see
+    /// <see cref="ExternalIdAuthentication"/>). <c>xms_edov</c> does not
+    /// help here: it covers domains the tenant has verified, which an
+    /// outlook.com or gmail.com address in an external tenant never is.
+    /// </summary>
+    private static string? ReadExternalIdVerifiedEmail(
+        ClaimsPrincipal principal)
+    {
+        return principal.Identities
+            .Where(
+                identity =>
+                    identity.AuthenticationType == ExternalIdAuthentication.VerifiedEmailAuthenticationType)
+            .Select(
+                identity =>
+                    identity.FindFirst(ExternalIdAuthentication.VerifiedEmailClaim)?.Value)
+            .FirstOrDefault(email => email is not null);
     }
 
     // The policy guarantees tid and oid; iss is always present on a

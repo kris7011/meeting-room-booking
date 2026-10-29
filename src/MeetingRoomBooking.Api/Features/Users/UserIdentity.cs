@@ -62,11 +62,12 @@ public sealed class UserIdentity
     public DateTimeOffset? LastUsedUtc { get; private set; }
 
     /// <summary>
-    /// A Microsoft Entra ID identity for <paramref name="userId"/>, keyed by
-    /// the validated issuer and object ID.
+    /// An identity of <paramref name="provider"/> for <paramref name="userId"/>,
+    /// keyed by the validated issuer and object ID.
     /// </summary>
-    public static UserIdentity CreateEntra(
+    public static UserIdentity Create(
         int userId,
+        IdentityProvider provider,
         string issuer,
         string objectId,
         string? verifiedEmail,
@@ -86,7 +87,7 @@ public sealed class UserIdentity
         return new UserIdentity
         {
             UserId = userId,
-            Provider = IdentityProvider.Entra,
+            Provider = provider,
             Issuer = issuer,
             Subject = objectId,
             VerifiedEmail = verifiedEmail,
