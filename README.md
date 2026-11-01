@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/kris7011/meeting-room-booking/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kris7011/meeting-room-booking/actions/workflows/ci.yml)
 
+**Review this project:** [90-second overview, screenshots and local demo instructions](docs/REVIEWER_GUIDE.md) · [technical walkthrough](docs/PROJECT_WALKTHROUGH.md). The anonymous local demo uses synthetic data and needs no Microsoft account or paid hosting.
+
 A multi-tenant meeting room booking platform. Organisations manage their own
 rooms and members; members find a free room for a number of people at a
 given time and book it, without double bookings and without ever seeing
